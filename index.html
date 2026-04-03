@@ -1185,6 +1185,7 @@
     HISTORY: 'PT_REPORT_HISTORY_V1'
   };
   const REPORT_HISTORY_MAX = 240;
+  const WRITE_COOLDOWN_MS = 450;
 
   const SETTINGS_KEY = 'PT_GBKK4_SETTINGS_V1';
   const SELECTED_SHEET_KEY = 'PT_GBKK_SELECTED_SHEET_V1';
@@ -1430,7 +1431,7 @@
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('markVisited', params);
     if(!url) return { ok:false, message:'ยังไม่ได้ตั้งค่า CONFIG.API_URL' };
-    return await jsonp(url);
+    return await jsonp(url, 30000);
   }
 
   async function apiResetVisitedAll(sheetName){
@@ -1438,7 +1439,7 @@
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('resetVisitedAll', params);
     if(!url) return { ok:false, message:'ยังไม่ได้ตั้งค่า CONFIG.API_URL' };
-    return await jsonp(url);
+    return await jsonp(url, 30000);
   }
 
   async function apiSaveNoted(id, noted, sheetName){
@@ -1926,15 +1927,137 @@
   }
 
   var REPORT_CTX = null;
+  var REPORT_SESSION = null;
   var REPORT_FRAME_READY = false;
   var REPORT_TRIMMED = false;
   var REPORT_EMBED_PATCHED = false;
   var REPORT_COPY_HOOKED = false;
   var REPORT_PREFILL_ACKED = false;
   var REPORT_NOTED_SAVE_WARNED = false;
+  var WRITE_QUEUE = Promise.resolve();
 
   function normText(s){
     return String(s || '').replace(/\s+/g,' ').trim().toLowerCase();
+  }
+
+  function makeToken_(prefix){
+    prefix = String(prefix || 'tok');
+    return prefix + '_' + Date.now() + '_' + Math.random().toString(16).slice(2);
+  }
+
+  function sleep_(ms){
+    ms = Number(ms || 0);
+    if(!(isFinite(ms) && ms > 0)) ms = 0;
+    return new Promise(function(resolve){ setTimeout(resolve, ms); });
+  }
+
+  function enqueueSheetWrite_(task, cooldownMs){
+    cooldownMs = Number(cooldownMs || WRITE_COOLDOWN_MS);
+    if(!(isFinite(cooldownMs) && cooldownMs >= 0)) cooldownMs = WRITE_COOLDOWN_MS;
+
+    var run = WRITE_QUEUE.then(function(){
+      return task();
+    });
+
+    WRITE_QUEUE = run.catch(function(){})
+      .then(function(){ return sleep_(cooldownMs); });
+
+    return run;
+  }
+
+  function normalizedCtxValue_(v){
+    return normText(v);
+  }
+
+  function sameCtxValue_(a, b){
+    var na = normalizedCtxValue_(a);
+    var nb = normalizedCtxValue_(b);
+    if(!na || !nb) return true;
+    return na === nb;
+  }
+
+  function buildReportSession_(place, sheetName){
+    place = place || {};
+    return {
+      token: makeToken_('rep'),
+      placeId: (place.id !== undefined && place.id !== null) ? String(place.id) : '',
+      sheetName: String(sheetName || CURRENT_SHEET || '').trim(),
+      account: (place.account !== undefined && place.account !== null) ? String(place.account) : '',
+      branchCode: (place.number !== undefined && place.number !== null) ? String(place.number) : '',
+      branchName: (place.account_name !== undefined && place.account_name !== null) ? String(place.account_name) : '',
+      openedAt: Date.now()
+    };
+  }
+
+  function getReportSession_(){
+    return (REPORT_SESSION && typeof REPORT_SESSION === 'object') ? REPORT_SESSION : null;
+  }
+
+  function getPlacesSnapshotForSheet_(sheetName){
+    var sh = String(sheetName || '').trim();
+    if(sh && sh === String(CURRENT_SHEET || '')){
+      return Array.isArray(PLACES) ? PLACES : [];
+    }
+
+    try{
+      var cached = cacheRead_(sh);
+      if(cached && cached.payload && Array.isArray(cached.payload.places)){
+        return cached.payload.places;
+      }
+    }catch(e){}
+
+    return [];
+  }
+
+  function findPlaceByIdForSheet_(placeId, sheetName){
+    var id = String(placeId || '').trim();
+    if(!id) return null;
+    var arr = getPlacesSnapshotForSheet_(sheetName);
+    for(var i=0;i<arr.length;i++){
+      var p = arr[i];
+      if(!p) continue;
+      if(String(p.id) === id) return p;
+    }
+    return null;
+  }
+
+  function payloadMatchesPlaceContext_(payload, place){
+    if(!payload || !place) return false;
+    if(!sameCtxValue_(payload.account, place.account)) return false;
+    if(!sameCtxValue_(payload.branchCode, place.number)) return false;
+    if(!sameCtxValue_(payload.branchName, place.account_name)) return false;
+    return true;
+  }
+
+  function resolveSafeReportCopyContext_(payload){
+    payload = payload || {};
+
+    var session = getReportSession_();
+    if(!session || !session.token) return null;
+
+    var token = payload.reportToken !== undefined && payload.reportToken !== null ? String(payload.reportToken).trim() : '';
+    if(!token || token !== String(session.token)) return null;
+
+    var placeId = payload.placeId !== undefined && payload.placeId !== null ? String(payload.placeId).trim() : '';
+    if(!placeId || placeId !== String(session.placeId || '')) return null;
+
+    var sheetName = payload.sheetName !== undefined && payload.sheetName !== null ? String(payload.sheetName).trim() : '';
+    if(!sheetName || sheetName !== String(session.sheetName || '')) return null;
+
+    if(!sameCtxValue_(payload.account, session.account)) return null;
+    if(!sameCtxValue_(payload.branchCode, session.branchCode)) return null;
+    if(!sameCtxValue_(payload.branchName, session.branchName)) return null;
+
+    var place = findPlaceByIdForSheet_(placeId, sheetName);
+    if(!place) return null;
+    if(!payloadMatchesPlaceContext_(payload, place)) return null;
+
+    return {
+      session: session,
+      placeId: placeId,
+      sheetName: sheetName,
+      place: place
+    };
   }
 
   function reportNotedDefaults_(){
@@ -1992,6 +2115,7 @@
     var num = (place.number !== undefined && place.number !== null) ? String(place.number) : '';
     var nam = (place.account_name !== undefined && place.account_name !== null) ? String(place.account_name) : '';
     var noted = readPlaceNoted_(place);
+    var session = getReportSession_();
 
     var notedPayload = {
       v: 1,
@@ -2004,6 +2128,8 @@
 
     return {
       placeId: (place.id !== undefined && place.id !== null) ? String(place.id) : '',
+      reportToken: session && session.token ? String(session.token) : '',
+      sheetName: session && session.sheetName ? String(session.sheetName) : String(CURRENT_SHEET || ''),
       account: acc,
       branchCode: num,
       branchName: nam,
@@ -2040,6 +2166,7 @@
 
   function openReport(place){
     REPORT_CTX = place || null;
+    REPORT_SESSION = buildReportSession_(place, CURRENT_SHEET);
     REPORT_PREFILL_ACKED = false;
 
     if(place){
@@ -2688,7 +2815,9 @@
 
   async function saveNotedToApiSilent_(placeId, notedStr, sheetName){
     try{
-      var res = await apiSaveNoted(placeId, notedStr, sheetName);
+      var res = await enqueueSheetWrite_(function(){
+        return apiSaveNoted(placeId, notedStr, sheetName);
+      });
       if(!res || !res.ok){
         if(!REPORT_NOTED_SAVE_WARNED){
           REPORT_NOTED_SAVE_WARNED = true;
@@ -2710,16 +2839,14 @@
     payload = payload || {};
     ensureHistoryExistsFromPayload_(payload);
 
-    var placeId = '';
-    if(payload.placeId !== undefined && payload.placeId !== null){
-      placeId = String(payload.placeId).trim();
+    var ctx = resolveSafeReportCopyContext_(payload);
+    if(!ctx){
+      console.warn('Skipped report->sheet sync because popup context no longer matches the active report session.', payload);
+      return;
     }
-    if(!placeId && REPORT_CTX && REPORT_CTX.id !== undefined && REPORT_CTX.id !== null){
-      placeId = String(REPORT_CTX.id);
-    }
-    if(!placeId) return;
 
-    var sheetName = CURRENT_SHEET || '';
+    var placeId = ctx.placeId;
+    var sheetName = ctx.sheetName;
     var rec = buildNotedRecordFromReportPayload_(payload);
     var notedStr = '';
     try{
@@ -2871,20 +2998,55 @@
     var sh = String(sheetName || '');
 
     try{
-      var res = await apiMarkVisited(id, sh);
+      var res = await enqueueSheetWrite_(function(){
+        return apiMarkVisited(id, sh);
+      });
       if(!res || !res.ok) throw new Error(res && res.message ? res.message : 'บันทึกไม่สำเร็จ');
 
       PENDING.delete(id);
       showToast('บันทึกแล้ว ✅');
 
-      if(sh === String(CURRENT_SHEET || '')){
+      if(sh === String(CURRENT_SHEET || '') && PENDING.size === 0){
         loadPlaces({ force: false });
       }
     }catch(err){
       console.error(err);
+      var verified = await verifyVisitedCommit_(id, sh);
+      if(verified === true){
+        PENDING.delete(id);
+        showToast('บันทึกแล้ว ✅');
+        if(sh === String(CURRENT_SHEET || '') && PENDING.size === 0){
+          loadPlaces({ force:false });
+        }
+        return;
+      }
+
       rollbackOptimisticVisited_(id);
-      showToast('บันทึกไม่สำเร็จ (คืนค่าแล้ว)');
+      showToast(verified === false ? 'บันทึกไม่สำเร็จ (คืนค่าแล้ว)' : 'เช็กสถานะไม่สำเร็จ (คืนค่าไว้ก่อน)');
     }
+  }
+
+  async function verifyVisitedCommit_(placeId, sheetName){
+    var id = String(placeId || '').trim();
+    var sh = String(sheetName || '').trim();
+    if(!id || !sh) return null;
+
+    for(var attempt=0; attempt<2; attempt++){
+      if(attempt > 0){
+        await sleep_(900);
+      }
+
+      try{
+        var res = await apiGetPlaces(sh);
+        if(!res || !res.ok || !Array.isArray(res.places)) continue;
+        var exists = res.places.some(function(p){
+          return p && String(p.id) === id;
+        });
+        return !exists;
+      }catch(e){}
+    }
+
+    return null;
   }
 
   async function confirmAndMarkVisited(place){
@@ -2998,7 +3160,9 @@
     var sheetAtCall = CURRENT_SHEET || '';
 
     try{
-      var res = await apiResetVisitedAll(sheetAtCall);
+      var res = await enqueueSheetWrite_(function(){
+        return apiResetVisitedAll(sheetAtCall);
+      });
       if(!res || !res.ok){
         showToast(res && res.message ? res.message : 'ล้างไม่สำเร็จ');
         return;

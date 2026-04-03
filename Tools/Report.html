@@ -545,7 +545,7 @@
   let showAllHistory = false;
 
   let modalOnYes = null;
-  let embedPrefillContext = { placeId: "" };
+  let embedPrefillContext = { placeId: "", reportToken: "", sheetName: "" };
 
   /* =========================
      Helpers
@@ -668,6 +668,38 @@
     return out;
   }
 
+  function readStoredHistory(){
+    return compactHistoryList(loadJSON(STORE_HISTORY, []));
+  }
+
+  function mergeHistoryLists(...lists){
+    const all = [];
+    for (const list of lists){
+      if (!Array.isArray(list)) continue;
+      for (const raw of list){
+        const item = normalizeHistoryEntry(raw);
+        if (!item) continue;
+        all.push(item);
+      }
+    }
+
+    all.sort((a, b) => {
+      const ta = Number(a.createdAt || 0);
+      const tb = Number(b.createdAt || 0);
+      return tb - ta;
+    });
+
+    const out = [];
+    for (const item of all){
+      const hasDup = out.some((it) => isDuplicateHistoryEntry(item, it));
+      if (hasDup) continue;
+      out.push(item);
+      if (out.length >= MAX_HISTORY_ITEMS) break;
+    }
+
+    return out;
+  }
+
   function getVisibleHistoryItems(){
     return showAllHistory ? history.slice() : history.filter(isEntryCopiedToday);
   }
@@ -743,6 +775,8 @@
     if (!EMBED) return;
     postToParent("PT_REPORT_COPIED", {
       placeId: String((embedPrefillContext && embedPrefillContext.placeId) || "").trim(),
+      reportToken: String((embedPrefillContext && embedPrefillContext.reportToken) || "").trim(),
+      sheetName: String((embedPrefillContext && embedPrefillContext.sheetName) || "").trim(),
       copiedAt: Date.now(),
       reportDateISO: reportDate.value || todayISO(),
       reportText: preview.textContent || buildReportText(),
@@ -927,12 +961,11 @@
   }
 
   function loadHistory(){
-    const arr = loadJSON(STORE_HISTORY, []);
-    history = compactHistoryList(arr);
+    history = mergeHistoryLists(readStoredHistory(), history);
   }
 
   function saveHistory(showError = false){
-    history = compactHistoryList(history);
+    history = mergeHistoryLists(history, readStoredHistory());
     const ok = saveJSON(STORE_HISTORY, history);
     if (!ok && showError){
       setStatus("err", "คัดลอกแล้ว แต่บันทึกประวัติลงเครื่องไม่สำเร็จ");
@@ -960,10 +993,7 @@
     });
     if (!entry) return null;
 
-    const hasDup = history.slice(0, 12).some((item) => isDuplicateHistoryEntry(entry, item));
-    if (hasDup) return entry;
-
-    history.unshift(entry);
+    history = mergeHistoryLists([entry], history, readStoredHistory());
     saveHistory(true);
     if (!EMBED) renderHistory();
     return entry;
@@ -1332,6 +1362,12 @@
     if (own("placeId")){
       embedPrefillContext.placeId = String(payload.placeId ?? "").trim();
     }
+    if (own("reportToken")){
+      embedPrefillContext.reportToken = String(payload.reportToken ?? "").trim();
+    }
+    if (own("sheetName")){
+      embedPrefillContext.sheetName = String(payload.sheetName ?? "").trim();
+    }
 
     if (own("account")){
       account.value = String(payload.account ?? "").trim();
@@ -1394,8 +1430,8 @@
   ========================== */
   function boot(){
     loadFormState();
+    loadHistory();
     if (!EMBED){
-      loadHistory();
       loadUIState();
       if (pruneSelectedIds()) saveUIState();
       saveHistory();
