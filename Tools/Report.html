@@ -472,6 +472,7 @@
   const STORE_FORM = "PT_REPORT_FORM_V1";
   const STORE_HISTORY = "PT_REPORT_HISTORY_V1";
   const STORE_UI = "PT_REPORT_UI_V1";
+  const STORAGE_CACHE_PREFIX = "PT_GBKK_PLACES_CACHE_V1_";
   const MAX_HISTORY_ITEMS = 240;
   const HISTORY_DUPLICATE_WINDOW_MS = 5000;
 
@@ -889,11 +890,50 @@
     }
   }
 
+  function isQuotaExceededError(err){
+    if (!err) return false;
+    const name = String(err.name || "");
+    const message = String(err.message || "");
+    const code = Number(err.code || 0);
+    return code === 22
+      || code === 1014
+      || name === "QuotaExceededError"
+      || name === "NS_ERROR_DOM_QUOTA_REACHED"
+      || message.toLowerCase().includes("quota");
+  }
+
+  function clearGbkkCaches(){
+    let removed = 0;
+    try{
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++){
+        const key = localStorage.key(i);
+        if (key && key.indexOf(STORAGE_CACHE_PREFIX) === 0){
+          keys.push(key);
+        }
+      }
+
+      for (const key of keys){
+        localStorage.removeItem(key);
+        removed++;
+      }
+    } catch (err){}
+    return removed;
+  }
+
   function saveJSON(key, value){
     try{
       localStorage.setItem(key, JSON.stringify(value));
       return true;
     } catch (err){
+      if (isQuotaExceededError(err) && clearGbkkCaches() > 0){
+        try{
+          localStorage.setItem(key, JSON.stringify(value));
+          return true;
+        } catch (retryErr){
+          err = retryErr;
+        }
+      }
       console.warn(`saveJSON failed for ${key}`, err);
       return false;
     }

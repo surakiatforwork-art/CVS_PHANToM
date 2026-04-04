@@ -1706,6 +1706,55 @@
     return CACHE_KEY_BASE + '_' + sheetKeyPart_(s);
   }
 
+  function isQuotaExceededError_(err){
+    if(!err) return false;
+    var name = String(err.name || '');
+    var message = String(err.message || '').toLowerCase();
+    var code = Number(err.code || 0);
+    return code === 22 ||
+      code === 1014 ||
+      name === 'QuotaExceededError' ||
+      name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      message.indexOf('quota') !== -1;
+  }
+
+  function evictGbkkCaches_(keepKeys){
+    keepKeys = Array.isArray(keepKeys) ? keepKeys.map(function(x){ return String(x || ''); }) : [];
+    var removed = 0;
+    try{
+      var keys = [];
+      for(var i=0;i<localStorage.length;i++){
+        var key = localStorage.key(i);
+        if(!key || key.indexOf(CACHE_KEY_BASE + '_') !== 0) continue;
+        if(keepKeys.indexOf(String(key)) !== -1) continue;
+        keys.push(String(key));
+      }
+
+      keys.forEach(function(key){
+        try{
+          localStorage.removeItem(key);
+          removed++;
+        }catch(e){}
+      });
+    }catch(e){}
+    return removed;
+  }
+
+  function setLocalStorageRecover_(key, value, keepKeys){
+    try{
+      localStorage.setItem(key, value);
+      return true;
+    }catch(err){
+      if(isQuotaExceededError_(err) && evictGbkkCaches_(keepKeys) > 0){
+        try{
+          localStorage.setItem(key, value);
+          return true;
+        }catch(retryErr){}
+      }
+      return false;
+    }
+  }
+
   var META = { total:0, visited:0, remaining:0, rev:null };
   var PLACES = [];
   var PENDING = new Map();
@@ -2532,7 +2581,15 @@
     try{
       win.localStorage.setItem(REPORT_KEYS.HISTORY, JSON.stringify(arr));
       return true;
-    }catch(e){ return false; }
+    }catch(e){
+      if(isQuotaExceededError_(e) && evictGbkkCaches_([]) > 0){
+        try{
+          win.localStorage.setItem(REPORT_KEYS.HISTORY, JSON.stringify(arr));
+          return true;
+        }catch(err){}
+      }
+      return false;
+    }
   }
 
   function ensureHistoryExistsFallback(){
@@ -2724,8 +2781,9 @@
   }
 
   function cacheWrite_(payload, sheetName){
+    var key = cacheKey_(sheetName);
     try{
-      localStorage.setItem(cacheKey_(sheetName), JSON.stringify({ ts: Date.now(), payload: payload }));
+      setLocalStorageRecover_(key, JSON.stringify({ ts: Date.now(), payload: payload }), [key]);
     }catch(e){}
   }
 
