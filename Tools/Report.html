@@ -261,6 +261,12 @@
       font-weight:950;
       color:#064e3b;
     }
+    .skuSectionMeta{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
     .skuList{
       display:grid;
       gap:8px;
@@ -520,18 +526,13 @@
       <div id="skuBoard" class="skuBoard">
         <section class="skuSection">
           <div class="skuSectionHead">
-            <strong>สินค้า SME</strong>
-            <span class="badge ok" id="smeCountMini">0 รายการ</span>
+            <strong>รายการสินค้า (ตามลิสต์หลัก)</strong>
+            <div class="skuSectionMeta">
+              <span class="badge ok" id="smeCountMini">SME 0 รายการ</span>
+              <span class="badge ok" id="denCountMini">DEN 0 รายการ</span>
+            </div>
           </div>
-          <div id="skuListSME" class="skuList"></div>
-        </section>
-
-        <section class="skuSection">
-          <div class="skuSectionHead">
-            <strong>สินค้า DEN</strong>
-            <span class="badge ok" id="denCountMini">0 รายการ</span>
-          </div>
-          <div id="skuListDEN" class="skuList"></div>
+          <div id="skuListAll" class="skuList"></div>
         </section>
       </div>
     </div>
@@ -663,64 +664,52 @@
     "สถานที่ใกล้ขนส่ง"
   ];
 
-  const SKU_SECTIONS = [
-    {
-      key: "SME",
-      title: "สินค้า SME",
-      items: [
-        { id: "sme_foam_baby_face_2oz", label: "SME โฟมเบบี้เฟช 2oz" },
-        { id: "sme_foam_green_baby_face_1_2oz", label: "SME โฟมเขียวเบบี้เฟช 1.2oz" },
-        { id: "sme_baby_face_gel_1_5oz", label: "SME เบบี้เฟชเจลล้างหน้า 1.5oz" },
-        { id: "sme_white_foam_1oz", label: "SME โฟมขาวไวท์ 1oz" },
-        { id: "sme_green_foam_0_5oz", label: "SME โฟมเขียวเบบี้เฟช 0.5oz" },
-        { id: "sme_cleansing_water_80ml", label: "SME คลีนซิ่งวอเทอร์ 80ml" },
-        { id: "sme_green_cream_10g", label: "SME ครีมเขียว 10g" },
-        { id: "sme_plus_white", label: "SME ครีมพลัสไวท์" },
-        { id: "sme_new_skin_liquid_plaster", label: "SME นิวสกินลิควิดพลาสเตอร์" },
-        { id: "sme_acne_gel_7g", label: "SME เจลแต้มสิว 7G" },
-        { id: "sme_acne_gel_5g_sachet", label: "SME เจลแต้มสิว 5G (แบบซอง)" },
-        { id: "sme_acne_scar_5g_sachet", label: "SME แอคเน่สการ์ 5G (ซอง)" },
-        { id: "sme_acne_sun_5g_sachet", label: "SME สมูทอีแอคเน่ซัน 5G. (ซอง)" },
-        { id: "sme_white_cream_5g_sachet", label: "SME ไวท์ครีม 5G. (ซอง)" },
-        { id: "sme_white_baby_face_spot_clear_40ml", label: "SME ไวท์เบบี้เฟซสปอตเคลียร์ 40 มล." },
-        { id: "sme_gold_cream_5g_sachet", label: "SME โกล์ดครีม 5G. (ซอง)" },
-        { id: "sme_green_foam_new", label: "โฟมเขียวใหม่" },
-        { id: "sme_gluta_b3_5g_sachet", label: "SME สมูทอี กลูต้า บี3. 5G. (ซอง)" },
-        { id: "sme_hya_filler_serum_5g_sachet", label: "SME สมูทอีไฮยา ฟิลเลอร์ เซรั่ม 5G. (ซอง)" },
-        { id: "sme_radiant_glow_30ml_sachet", label: "SMEสมูทอี เรเดียนท์ โกลว์ 30 มล. (ซอง)" },
-        { id: "sme_sun_zero_feel_5g_new", label: "SME สมูทอี ซัน ซีโร่ ฟีล ซ่าเช่ 5 กรัม (NEW)" }
-      ]
-    },
-    {
-      key: "DEN",
-      title: "สินค้า DEN",
-      items: [
-        { id: "den_floss", label: "DEN ไหมขัดฟัน" },
-        { id: "den_tube_50g", label: "DEN เดนทิสเต้ทูป 50G" },
-        { id: "den_travel_set", label: "DEN ชุดเดินทาง" },
-        { id: "den_tube_100g", label: "DEN เดนทิสเต้ทูป 100G" },
-        { id: "den_sensitive_100g", label: "DEN เดนทิสเต้เซนซิทีฟ 100G" },
-        { id: "den_italy_3_action_80", label: "DEN แปรง ITALY 3 แอ็คชั่น (80 บาท)" },
-        { id: "den_oral_care_set", label: "DEN ชุดอุปกรณ์ดูแลช่องปาก" },
-        { id: "den_tube_set_90x90g", label: "DEN เดนทิสเต้ทูปเซ็ท 90*90G" },
-        { id: "den_premium_care_50g", label: "DEN เดนทิสเต้พรีเมี่ยมแคร์ 50G" },
-        { id: "den_brush_pack_3", label: "DEN แปรงแพ็ค 3" },
-        { id: "den_mouth_spray", label: "DEN สเปรย์ระงับกลิ่นปาก" },
-        { id: "den_quality_max_45g", label: "DEN เดนทิสเต้ควาวิตี้แม็ก 45G" },
-        { id: "den_goodnight_pastel", label: "DEN แปรงกู๊ดไนท์พาสเทล" },
-        { id: "den_floss_pick_40", label: "DEN ด้ามไหมขัดฟัน40ชิ้น" },
-        { id: "den_sukiri_candy", label: "DEN ลูกอมสุกิริ" },
-        { id: "den_proskin_6_capsules", label: "DEN โปรสกิน 6 แคปซูล" },
-        { id: "den_proskin_12_capsules", label: "DEN โปรสกิน 12 แคปซูล" },
-        { id: "den_tube_set_160g_p3", label: "DEN เดนทิสเต้ทูปเซ็ท 160G*P.3" },
-        { id: "den_valentine_100g", label: "DEN เดนทิสเต้วาเลนไทน์100G" },
-        { id: "den_advanced_care_new", label: "DEN แปรงสีฟันแอดวานซ์แคร์ (NEW)" },
-        { id: "den_premium_natural_white_50g", label: "DEN เดนทิสเต้พรีเมี่ยม&แนทเชอรัลไวท์ 50 G." },
-        { id: "den_extra_strong_mint_100g", label: "DEN เดนทิสเต้เอ็กซ์ตร้าสตรองมินต์ 100 G." },
-        { id: "den_whitening_purple_100g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล 100 กรัม (NEW)" },
-        { id: "den_whitening_purple_sachet_10g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล ซ่าเช่ 10 กรัม (NEW)" }
-      ]
-    }
+  const SKU_ITEMS = [
+    { id: "sme_foam_baby_face_2oz", label: "SME โฟมเบบี้เฟช 2oz", family: "SME" },
+    { id: "sme_foam_green_baby_face_1_2oz", label: "SME โฟมเขียวเบบี้เฟช 1.2oz", family: "SME" },
+    { id: "sme_baby_face_gel_1_5oz", label: "SME เบบี้เฟชเจลล้างหน้า 1.5oz", family: "SME" },
+    { id: "sme_white_foam_1oz", label: "SME โฟมขาวไวท์ 1oz", family: "SME" },
+    { id: "sme_green_foam_0_5oz", label: "SME โฟมเขียวเบบี้เฟช 0.5oz", family: "SME" },
+    { id: "sme_cleansing_water_80ml", label: "SME คลีนซิ่งวอเทอร์ 80ml", family: "SME" },
+    { id: "sme_green_cream_10g", label: "SME ครีมเขียว 10g", family: "SME" },
+    { id: "sme_plus_white", label: "SME ครีมพลัสไวท์", family: "SME" },
+    { id: "sme_new_skin_liquid_plaster", label: "SME นิวสกินลิควิดพลาสเตอร์", family: "SME" },
+    { id: "sme_acne_gel_7g", label: "SME เจลแต้มสิว 7G", family: "SME" },
+    { id: "sme_acne_gel_5g_sachet", label: "SME เจลแต้มสิว 5G (แบบซอง)", family: "SME" },
+    { id: "den_floss", label: "DENไหมขัดฟัน", family: "DEN" },
+    { id: "den_tube_50g", label: "DEN เดนทิสเต้ทูป 50G", family: "DEN" },
+    { id: "den_travel_set", label: "DEN ชุดเดินทาง", family: "DEN" },
+    { id: "den_tube_100g", label: "DEN เดนทิสเต้ทูป 100G", family: "DEN" },
+    { id: "den_sensitive_100g", label: "DEN เดนทิสเต้เซนซิทีฟ 100G", family: "DEN" },
+    { id: "den_italy_3_action_80", label: "DEN แปรง ITALY 3 แอ็คชั่น(80 บาท)", family: "DEN" },
+    { id: "den_oral_care_set", label: "DEN ชุดอุปกรณ์ดูแลช่องปาก", family: "DEN" },
+    { id: "den_tube_set_90x90g", label: "DEN เดนทิสเต้ทูปเซ็ท 90*90G", family: "DEN" },
+    { id: "den_premium_care_50g", label: "DEN เดนทิสเต้พรีเมี่ยมแคร์ 50G", family: "DEN" },
+    { id: "den_brush_pack_3", label: "DEN แปรงแพ็ค 3", family: "DEN" },
+    { id: "den_mouth_spray", label: "DEN สเปรย์ระงับกลิ่นปาก", family: "DEN" },
+    { id: "den_quality_max_45g", label: "DEN เดนทิสเต้ควาวิตี้แม็ก 45G", family: "DEN" },
+    { id: "den_goodnight_pastel", label: "DEN แปรงกู๊ดไนท์พาสเทล", family: "DEN" },
+    { id: "den_floss_pick_40", label: "DEN ด้ามไหมขัดฟัน40ชิ้น", family: "DEN" },
+    { id: "den_sukiri_candy", label: "DEN ลูกอมสุกิริ", family: "DEN" },
+    { id: "den_proskin_6_capsules", label: "DEN โปรสกิน 6 แคปซูล", family: "DEN" },
+    { id: "den_proskin_12_capsules", label: "DEN โปรสกิน 12 แคปซูล", family: "DEN" },
+    { id: "den_tube_set_160g_p3", label: "DEN เดนทิสเต้ทูปเซ็ท 160G*P.3", family: "DEN" },
+    { id: "sme_acne_scar_5g_sachet", label: "SME แอคเน่สการ์ 5G (ซอง)", family: "SME" },
+    { id: "den_valentine_100g", label: "DEN เดนทิสเต้วาเลนไทน์100G", family: "DEN" },
+    { id: "sme_acne_sun_5g_sachet", label: "SME สมูทอีแอคเน่ซัน 5G. (ซอง)", family: "SME" },
+    { id: "sme_white_cream_5g_sachet", label: "SME ไวท์ครีม 5G. (ซอง)", family: "SME" },
+    { id: "sme_white_baby_face_spot_clear_40ml", label: "SME ไวท์เบบี้เฟซสปอตเคลียร์ 40 มล.", family: "SME" },
+    { id: "sme_gold_cream_5g_sachet", label: "SME โกล์ดครีม 5G. (ซอง)", family: "SME" },
+    { id: "sme_green_foam_new", label: "โฟมเขียวใหม่", family: "SME" },
+    { id: "den_advanced_care_new", label: "DEN แปรงสีฟันแอดวานซ์แคร์ (NEW)", family: "DEN" },
+    { id: "den_premium_natural_white_50g", label: "DEN เดนทิสเต้พรีเมี่ยม&แนทเชอรัลไวท์ 50 g", family: "DEN" },
+    { id: "den_extra_strong_mint_100g", label: "DEN เดนทิสเต้เอ็กซ์ตร้าสตรองมินต์ 100 g.", family: "DEN" },
+    { id: "sme_gluta_b3_5g_sachet", label: "SME สมูทอี กลูต้า บี3. 5G. (ซอง)", family: "SME" },
+    { id: "sme_hya_filler_serum_5g_sachet", label: "SME สมูทอีไฮยา ฟิลเลอร์ เซรั่ม 5G. (ซอง)", family: "SME" },
+    { id: "sme_radiant_glow_30ml_sachet", label: "SMEสมูทอี เรเดียนท์ โกลว์ 30 มล. (ซอง)", family: "SME" },
+    { id: "sme_sun_zero_feel_5g_new", label: "SME สมูทอี ซัน ซีโร่ ฟีล ซ่าเช่ 5 กรัม (NEW)", family: "SME" },
+    { id: "den_whitening_purple_100g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล 100 กรัม (NEW)", family: "DEN" },
+    { id: "den_whitening_purple_sachet_10g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล ซ่าเช่ 10 กรัม (NEW)", family: "DEN" }
   ];
 
   const LINE_GROUPS = {
@@ -731,11 +720,6 @@
     summary: "https://line.me/R/nv/chat/"
   };
 
-  const SKU_ITEMS = SKU_SECTIONS.flatMap((section) => section.items.map((item) => ({
-    id: item.id,
-    label: item.label,
-    family: section.key
-  })));
   const SKU_ITEM_MAP = new Map(SKU_ITEMS.map((item) => [item.id, item]));
   const DEFAULT_SKU_GLOBAL_FLAGS = {
     sme_foam_green_baby_face_1_2oz: MONTHLY_FLAG_FOCUS,
@@ -799,8 +783,7 @@
   const btnResetForm = $("btnResetForm");
 
   const skuBoard = $("skuBoard");
-  const skuListSME = $("skuListSME");
-  const skuListDEN = $("skuListDEN");
+  const skuListAll = $("skuListAll");
 
   const histList = $("histList");
   const histCount = $("histCount");
@@ -1102,14 +1085,10 @@
   }
 
   function renderSkuLists(){
-    skuListSME.innerHTML = "";
-    skuListDEN.innerHTML = "";
+    skuListAll.innerHTML = "";
 
-    for (const section of SKU_SECTIONS){
-      const host = section.key === "SME" ? skuListSME : skuListDEN;
-      for (const item of section.items){
-        host.appendChild(createSkuRow({ ...item, family: section.key }));
-      }
+    for (const item of SKU_ITEMS){
+      skuListAll.appendChild(createSkuRow(item));
     }
   }
 
@@ -1238,8 +1217,8 @@
 
     smeCountBadge.textContent = `สินค้า SME : มีสินค้า ${smeCount} รายการ`;
     denCountBadge.textContent = `สินค้า DEN : มีสินค้า ${denCount} รายการ`;
-    smeCountMini.textContent = `${smeCount} รายการ`;
-    denCountMini.textContent = `${denCount} รายการ`;
+    smeCountMini.textContent = `SME ${smeCount} รายการ`;
+    denCountMini.textContent = `DEN ${denCount} รายการ`;
   }
 
   function buildSkuLine(item){
@@ -1306,13 +1285,7 @@
       ""
     ];
 
-    for (const item of SKU_SECTIONS[0].items){
-      lines.push(buildSkuLine(item));
-    }
-
-    lines.push("");
-
-    for (const item of SKU_SECTIONS[1].items){
+    for (const item of SKU_ITEMS){
       lines.push(buildSkuLine(item));
     }
 
