@@ -626,6 +626,7 @@
   const STORE_HISTORY = "PT_REPORT_HISTORY_V1";
   const STORE_UI = "PT_REPORT_UI_V1";
   const STORE_SKU_GLOBAL = "PT_REPORT_SKU_GLOBAL_V1";
+  const SKU_GLOBAL_PRESET_VERSION = "2026-07-14-order-v2";
   const STORAGE_CACHE_PREFIX = "PT_GBKK_PLACES_CACHE_V1_";
   const MAX_HISTORY_ITEMS = 240;
   const HISTORY_DUPLICATE_WINDOW_MS = 5000;
@@ -707,12 +708,12 @@
         { id: "den_mouth_spray", label: "DEN สเปรย์ระงับกลิ่นปาก" },
         { id: "den_quality_max_45g", label: "DEN เดนทิสเต้ควาวิตี้แม็ก 45G" },
         { id: "den_goodnight_pastel", label: "DEN แปรงกู๊ดไนท์พาสเทล" },
-        { id: "den_floss_pick_40", label: "DEN ด้ามไหมขัดฟัน 40 ชิ้น" },
+        { id: "den_floss_pick_40", label: "DEN ด้ามไหมขัดฟัน40ชิ้น" },
         { id: "den_sukiri_candy", label: "DEN ลูกอมสุกิริ" },
         { id: "den_proskin_6_capsules", label: "DEN โปรสกิน 6 แคปซูล" },
         { id: "den_proskin_12_capsules", label: "DEN โปรสกิน 12 แคปซูล" },
         { id: "den_tube_set_160g_p3", label: "DEN เดนทิสเต้ทูปเซ็ท 160G*P.3" },
-        { id: "den_valentine_100g", label: "DEN เดนทิสเต้วาเลนไทน์ 100G" },
+        { id: "den_valentine_100g", label: "DEN เดนทิสเต้วาเลนไทน์100G" },
         { id: "den_advanced_care_new", label: "DEN แปรงสีฟันแอดวานซ์แคร์ (NEW)" },
         { id: "den_premium_natural_white_50g", label: "DEN เดนทิสเต้พรีเมี่ยม&แนทเชอรัลไวท์ 50 G." },
         { id: "den_extra_strong_mint_100g", label: "DEN เดนทิสเต้เอ็กซ์ตร้าสตรองมินต์ 100 G." },
@@ -736,6 +737,33 @@
     family: section.key
   })));
   const SKU_ITEM_MAP = new Map(SKU_ITEMS.map((item) => [item.id, item]));
+  const DEFAULT_SKU_GLOBAL_FLAGS = {
+    sme_foam_green_baby_face_1_2oz: MONTHLY_FLAG_FOCUS,
+    sme_white_foam_1oz: MONTHLY_FLAG_FOCUS,
+    sme_green_cream_10g: MONTHLY_FLAG_FOCUS,
+    sme_new_skin_liquid_plaster: MONTHLY_FLAG_SKIP,
+    sme_acne_gel_7g: MONTHLY_FLAG_SKIP,
+    den_tube_50g: MONTHLY_FLAG_FOCUS,
+    den_italy_3_action_80: MONTHLY_FLAG_FOCUS,
+    den_oral_care_set: MONTHLY_FLAG_SKIP,
+    den_sukiri_candy: MONTHLY_FLAG_FOCUS,
+    den_tube_set_160g_p3: MONTHLY_FLAG_SKIP,
+    sme_acne_scar_5g_sachet: MONTHLY_FLAG_FOCUS,
+    den_valentine_100g: MONTHLY_FLAG_SKIP,
+    sme_acne_sun_5g_sachet: MONTHLY_FLAG_FOCUS,
+    sme_white_cream_5g_sachet: MONTHLY_FLAG_FOCUS,
+    sme_white_baby_face_spot_clear_40ml: MONTHLY_FLAG_FOCUS,
+    sme_gold_cream_5g_sachet: MONTHLY_FLAG_FOCUS,
+    sme_green_foam_new: MONTHLY_FLAG_SKIP,
+    den_premium_natural_white_50g: MONTHLY_FLAG_FOCUS,
+    den_extra_strong_mint_100g: MONTHLY_FLAG_FOCUS,
+    sme_gluta_b3_5g_sachet: MONTHLY_FLAG_FOCUS,
+    sme_hya_filler_serum_5g_sachet: MONTHLY_FLAG_FOCUS,
+    sme_radiant_glow_30ml_sachet: MONTHLY_FLAG_FOCUS,
+    sme_sun_zero_feel_5g_new: MONTHLY_FLAG_FOCUS,
+    den_whitening_purple_100g_new: MONTHLY_FLAG_FOCUS,
+    den_whitening_purple_sachet_10g_new: MONTHLY_FLAG_FOCUS
+  };
 
   function getLineUrlByAccount(accountValue){
     const a = (accountValue || "").trim().toUpperCase();
@@ -1120,11 +1148,19 @@
   }
 
   function loadGlobalSkuFlags(){
-    const raw = loadJSON(STORE_SKU_GLOBAL, {});
+    const raw = loadJSON(STORE_SKU_GLOBAL, null);
+    const storedFlags = (raw && typeof raw === "object" && raw.flags && typeof raw.flags === "object")
+      ? raw.flags
+      : raw;
+    const storedVersion = (raw && typeof raw === "object" && typeof raw.version === "string")
+      ? raw.version
+      : "";
+    const usePresetDefaults = storedVersion !== SKU_GLOBAL_PRESET_VERSION;
+    const source = usePresetDefaults ? DEFAULT_SKU_GLOBAL_FLAGS : storedFlags;
     const out = {};
 
-    if (raw && typeof raw === "object"){
-      for (const [id, value] of Object.entries(raw)){
+    if (source && typeof source === "object"){
+      for (const [id, value] of Object.entries(source)){
         if (!SKU_ITEM_MAP.has(id)) continue;
         const normalized = normalizeMonthlyFlag(value);
         if (!normalized) continue;
@@ -1133,6 +1169,9 @@
     }
 
     globalSkuFlags = out;
+    if (usePresetDefaults){
+      saveGlobalSkuFlags();
+    }
   }
 
   function saveGlobalSkuFlags(){
@@ -1143,7 +1182,10 @@
       out[id] = normalized;
     }
     globalSkuFlags = out;
-    saveJSON(STORE_SKU_GLOBAL, out);
+    saveJSON(STORE_SKU_GLOBAL, {
+      version: SKU_GLOBAL_PRESET_VERSION,
+      flags: out
+    });
   }
 
   function clearAllSkuChecks(){
