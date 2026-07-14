@@ -2110,15 +2110,29 @@
   }
 
   function reportNotedDefaults_(){
-    return { pog:'ตรง', sku:'ไม่ครบ', oos:'', issue:'', note:'' };
+    return { locationArea:'', issue:'', note:'', skuChecks:{} };
   }
 
-  function normalizePogValue_(v){
-    return String(v === null || v === undefined ? '' : v).trim() === 'ไม่ตรง' ? 'ไม่ตรง' : 'ตรง';
-  }
+  function normalizeSkuChecksMap_(raw){
+    var out = {};
+    if(!raw || typeof raw !== 'object') return out;
 
-  function normalizeSkuValue_(v){
-    return String(v === null || v === undefined ? '' : v).trim() === 'ครบ' ? 'ครบ' : 'ไม่ครบ';
+    if(Array.isArray(raw)){
+      for(var i=0;i<raw.length;i++){
+        var id = String(raw[i] || '').trim();
+        if(id) out[id] = true;
+      }
+      return out;
+    }
+
+    var keys = Object.keys(raw);
+    for(var j=0;j<keys.length;j++){
+      var key = String(keys[j] || '').trim();
+      if(!key) continue;
+      out[key] = !!raw[key];
+    }
+
+    return out;
   }
 
   function readPlaceNoted_(place){
@@ -2149,11 +2163,10 @@
       obj = obj.noted;
     }
 
-    if(obj.pog !== undefined) out.pog = normalizePogValue_(obj.pog);
-    if(obj.sku !== undefined) out.sku = normalizeSkuValue_(obj.sku);
-    if(obj.oos !== undefined && obj.oos !== null) out.oos = String(obj.oos);
+    if(obj.locationArea !== undefined && obj.locationArea !== null) out.locationArea = String(obj.locationArea);
     if(obj.issue !== undefined && obj.issue !== null) out.issue = String(obj.issue);
     if(obj.note !== undefined && obj.note !== null) out.note = String(obj.note);
+    out.skuChecks = normalizeSkuChecksMap_(obj.skuChecks || obj.checkedSkus || {});
 
     return out;
   }
@@ -2167,12 +2180,11 @@
     var session = getReportSession_();
 
     var notedPayload = {
-      v: 1,
-      pog: normalizePogValue_(noted.pog),
-      sku: normalizeSkuValue_(noted.sku),
-      oos: String(noted.oos || ''),
+      v: 2,
+      locationArea: String(noted.locationArea || ''),
       issue: String(noted.issue || ''),
-      note: String(noted.note || '')
+      note: String(noted.note || ''),
+      skuChecks: normalizeSkuChecksMap_(noted.skuChecks || {})
     };
 
     return {
@@ -2182,11 +2194,10 @@
       account: acc,
       branchCode: num,
       branchName: nam,
-      pog: notedPayload.pog,
-      sku: notedPayload.sku,
-      oos: notedPayload.oos,
+      locationArea: notedPayload.locationArea,
       issue: notedPayload.issue,
       note: notedPayload.note,
+      skuChecks: notedPayload.skuChecks,
       noted: notedPayload
     };
   }
@@ -2466,14 +2477,20 @@
     var num = (place.number !== undefined && place.number !== null) ? String(place.number) : '';
     var nam = (place.account_name !== undefined && place.account_name !== null) ? String(place.account_name) : '';
     var noted = readPlaceNoted_(place);
+    var fullPayload = buildReportPrefillPayload_(place);
+
+    if(typeof win.__PT_APPLY_PREFILL === 'function'){
+      try{
+        win.__PT_APPLY_PREFILL(fullPayload);
+        return true;
+      }catch(e){}
+    }
 
     var accEl  = findField(doc, ['account'], ['แอคเคาท์','account']);
     var numEl  = findField(doc, ['branchCode'], ['เลขสาขา','สาขา','branch','store no','number']);
     var nameEl = findField(doc, ['branchName'], ['ชื่อสาขา','ชื่อร้าน','store name','account name','ชื่อ']);
-    var pogEl  = findField(doc, ['pog'], ['pog']);
-    var skuEl  = findField(doc, ['sku'], ['sku']);
-    var oosEl  = findField(doc, ['oos'], ['oos','สินค้าoos','สินค้า oos']);
-    var issueEl= findField(doc, ['issue'], ['ปัญหาหน้างาน','issue']);
+    var areaEl = findField(doc, ['locationArea'], ['สาขาตั้งอยู่บริเวณ','บริเวณ']);
+    var issueEl= findField(doc, ['issue'], ['ปัญหาที่พบ','ปัญหาหน้างาน','issue']);
     var noteEl = findField(doc, ['note'], ['หมายเหตุ','note']);
 
     function setVal(el, val){
@@ -2498,13 +2515,11 @@
     var okA = setVal(accEl, acc);
     var okN = setVal(numEl, num);
     var okS = setVal(nameEl, nam);
-    var okP = setVal(pogEl, normalizePogValue_(noted.pog));
-    var okK = setVal(skuEl, normalizeSkuValue_(noted.sku));
-    var okO = setVal(oosEl, noted.oos || '');
+    var okL = setVal(areaEl, noted.locationArea || '');
     var okI = setVal(issueEl, noted.issue || '');
     var okT = setVal(noteEl, noted.note || '');
 
-    return !!(okA || okN || okS || okP || okK || okO || okI || okT);
+    return !!(okA || okN || okS || okL || okI || okT);
   }
 
   function startPrefillLoop(){
@@ -2808,19 +2823,17 @@
     var src = (payload.noted && typeof payload.noted === 'object') ? payload.noted : payload;
     var out = reportNotedDefaults_();
 
-    if(src && src.pog !== undefined) out.pog = normalizePogValue_(src.pog);
-    if(src && src.sku !== undefined) out.sku = normalizeSkuValue_(src.sku);
-    if(src && src.oos !== undefined && src.oos !== null) out.oos = String(src.oos);
+    if(src && src.locationArea !== undefined && src.locationArea !== null) out.locationArea = String(src.locationArea);
     if(src && src.issue !== undefined && src.issue !== null) out.issue = String(src.issue);
     if(src && src.note !== undefined && src.note !== null) out.note = String(src.note);
+    out.skuChecks = normalizeSkuChecksMap_(src ? (src.skuChecks || src.checkedSkus || {}) : {});
 
     var rec = {
-      v: 1,
-      pog: out.pog,
-      sku: out.sku,
-      oos: out.oos,
+      v: 2,
+      locationArea: out.locationArea,
       issue: out.issue,
-      note: out.note
+      note: out.note,
+      skuChecks: out.skuChecks
     };
 
     if(payload.reportDateISO){
