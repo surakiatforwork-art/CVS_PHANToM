@@ -332,6 +332,39 @@
       border-color:rgba(239,68,68,.18);
       background:rgba(239,68,68,.08);
     }
+    .summaryTopicHint{
+      margin:2px 0 10px;
+      color:var(--muted2);
+      font-size:12px;
+      line-height:1.4;
+    }
+    .summaryTopicList{
+      display:grid;
+      gap:8px;
+      margin-bottom:14px;
+    }
+    .summaryTopicItem{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(2,6,23,.08);
+      background:#fff;
+    }
+    .summaryTopicItem input{
+      width:18px;
+      height:18px;
+      margin:0;
+      flex:0 0 auto;
+      accent-color:var(--accent);
+    }
+    .summaryTopicLabel{
+      font-size:14px;
+      line-height:1.35;
+      font-weight:850;
+      color:#0f172a;
+    }
     .readonlyChip{
       display:flex;
       align-items:center;
@@ -540,6 +573,10 @@
     <div class="card">
       <div class="label">3) ข้อมูลเพิ่มเติม</div>
 
+      <div class="label">🧾 หัวข้อสรุปท้ายงาน</div>
+      <div class="summaryTopicHint">ติ๊กเฉพาะร้านที่ต้องการให้ไปอยู่ในสรุปงานท้ายวันแบบแยกหมวด</div>
+      <div id="summaryTopicList" class="summaryTopicList"></div>
+
       <div class="grid2">
         <div>
           <div class="label">⛔ ปัญหาที่พบ</div>
@@ -671,6 +708,13 @@
     "สถานที่ใกล้ขนส่ง"
   ];
 
+  const SUMMARY_TOPICS = [
+    { id: "brush_advanced_b1g1", label: "⛔สรุปแปรงแอดวานซ์ 1แถม1" },
+    { id: "brush_pack3_b1g1", label: "⛔สรุปแปรงแพ็ค3 1แถม1" },
+    { id: "acne_scar_5g_b1g1", label: "⛔สรุปแอคเน่สการ์5G 1แถม1" },
+    { id: "acne_gel_5g_b1g1", label: "⛔สรุปเจลแต้มสิว5G 1แถม1" }
+  ];
+
   const SKU_ITEMS = [
     { id: "sme_foam_baby_face_2oz", label: "SME โฟมเบบี้เฟช 2oz", family: "SME" },
     { id: "sme_foam_green_baby_face_1_2oz", label: "SME โฟมเขียวเบบี้เฟช 1.2oz", family: "SME" },
@@ -791,6 +835,7 @@
 
   const skuBoard = $("skuBoard");
   const skuListAll = $("skuListAll");
+  const summaryTopicList = $("summaryTopicList");
 
   const histList = $("histList");
   const histCount = $("histCount");
@@ -884,7 +929,8 @@
       locationArea: "",
       issue: "",
       note: DEFAULT_NOTE_TEMPLATE,
-      skuChecks: {}
+      skuChecks: {},
+      summarySelections: {}
     };
   }
 
@@ -914,6 +960,26 @@
     return out;
   }
 
+  function normalizeSummarySelections(raw){
+    const out = {};
+    if (!raw || typeof raw !== "object") return out;
+
+    if (Array.isArray(raw)){
+      for (const id of raw){
+        if (typeof id !== "string") continue;
+        if (!SUMMARY_TOPICS.some((topic) => topic.id === id)) continue;
+        out[id] = true;
+      }
+      return out;
+    }
+
+    for (const topic of SUMMARY_TOPICS){
+      out[topic.id] = !!raw[topic.id];
+    }
+
+    return out;
+  }
+
   function normalizeNotedState(raw){
     const out = defaultNotedState();
     if (!raw || typeof raw !== "object") return out;
@@ -930,6 +996,9 @@
       out.note = noteValueOrDefault(source.note);
     }
     out.skuChecks = normalizeSkuChecks(source.skuChecks || source.checkedSkus || {});
+    out.summarySelections = normalizeSummarySelections(
+      source.summarySelections || source.summaryChecks || source.summaryTopics || {}
+    );
 
     return out;
   }
@@ -949,8 +1018,18 @@
       reportText,
       account: safeText(item.account).trim(),
       branchCode: safeText(item.branchCode).trim(),
-      branchName: safeText(item.branchName).trim()
+      branchName: safeText(item.branchName).trim(),
+      summarySelections: normalizeSummarySelections(
+        item.summarySelections || item.summaryChecks || item.summaryTopics || {}
+      )
     };
+  }
+
+  function sameSummarySelections(a, b){
+    const left = normalizeSummarySelections(a);
+    const right = normalizeSummarySelections(b);
+
+    return SUMMARY_TOPICS.every((topic) => !!left[topic.id] === !!right[topic.id]);
   }
 
   function isDuplicateHistoryEntry(a, b){
@@ -959,6 +1038,7 @@
     if (String(a.account || "") !== String(b.account || "")) return false;
     if (String(a.branchCode || "") !== String(b.branchCode || "")) return false;
     if (String(a.branchName || "") !== String(b.branchName || "")) return false;
+    if (!sameSummarySelections(a.summarySelections, b.summarySelections)) return false;
 
     const ta = Number(a.createdAt || 0);
     const tb = Number(b.createdAt || 0);
@@ -1070,6 +1150,20 @@
     const options = ['<option value="">— เลือกบริเวณ —</option>']
       .concat(LOCATION_OPTIONS.map((value) => `<option value="${escapeHtmlAttr(value)}">${escapeHtml(value)}</option>`));
     locationArea.innerHTML = options.join("");
+  }
+
+  function renderSummaryTopics(){
+    summaryTopicList.innerHTML = "";
+
+    for (const topic of SUMMARY_TOPICS){
+      const row = document.createElement("label");
+      row.className = "summaryTopicItem";
+      row.innerHTML = `
+        <input type="checkbox" data-summary-id="${escapeHtmlAttr(topic.id)}" aria-label="${escapeHtmlAttr(topic.label)}">
+        <span class="summaryTopicLabel">${escapeHtml(topic.label)}</span>
+      `;
+      summaryTopicList.appendChild(row);
+    }
   }
 
   function createSkuRow(item){
@@ -1246,13 +1340,37 @@
     return `${prefix}${item.label} : ${value}`;
   }
 
+  function collectSummarySelectionsFromDom(){
+    const out = {};
+
+    for (const topic of SUMMARY_TOPICS){
+      const input = summaryTopicList.querySelector(`[data-summary-id="${cssEscape(topic.id)}"]`);
+      if (input instanceof HTMLInputElement && input.checked){
+        out[topic.id] = true;
+      }
+    }
+
+    return out;
+  }
+
+  function applySummarySelectionsToDom(raw){
+    const normalized = normalizeSummarySelections(raw);
+
+    for (const topic of SUMMARY_TOPICS){
+      const input = summaryTopicList.querySelector(`[data-summary-id="${cssEscape(topic.id)}"]`);
+      if (!(input instanceof HTMLInputElement)) continue;
+      input.checked = !!normalized[topic.id];
+    }
+  }
+
   function buildNotedPayloadForParent(){
     return {
-      v: 2,
+      v: 3,
       locationArea: String(locationArea.value || "").trim(),
       issue: safeText(issue.value).trimEnd(),
       note: safeText(note.value).trimEnd(),
-      skuChecks: collectSkuChecksFromDom()
+      skuChecks: collectSkuChecksFromDom(),
+      summarySelections: collectSummarySelectionsFromDom()
     };
   }
 
@@ -1413,6 +1531,7 @@
       data.issue = issue.value || "";
       data.note = noteValueOrDefault(note.value);
       data.skuChecks = collectSkuChecksFromDom();
+      data.summarySelections = collectSummarySelectionsFromDom();
     } else {
       delete data.account;
       delete data.branchCode;
@@ -1421,6 +1540,7 @@
       delete data.issue;
       delete data.note;
       delete data.skuChecks;
+      delete data.summarySelections;
     }
 
     saveJSON(STORE_FORM, data);
@@ -1438,6 +1558,7 @@
       issue.value = data.issue || "";
       note.value = noteValueOrDefault(data.note);
       applySkuChecksToDom(data.skuChecks || {});
+      applySummarySelectionsToDom(data.summarySelections || {});
     } else {
       account.value = "";
       branchCode.value = "";
@@ -1446,6 +1567,7 @@
       issue.value = "";
       note.value = DEFAULT_NOTE_TEMPLATE;
       applySkuChecksToDom({});
+      applySummarySelectionsToDom({});
     }
 
     reportDate.value = data.reportDate || "";
@@ -1490,7 +1612,8 @@
       reportText,
       account: safeText(account.value).trim(),
       branchCode: safeText(branchCode.value).trim(),
-      branchName: safeText(branchName.value).trim()
+      branchName: safeText(branchName.value).trim(),
+      summarySelections: collectSummarySelectionsFromDom()
     });
     if (!entry) return null;
 
@@ -1712,6 +1835,24 @@
       lines.push(`${idx + 1}. ${[a, bc, bn].filter(Boolean).join(" ").trim()}`);
     });
 
+    lines.push("");
+    lines.push(`เข้าทั้งหมดวันนี้ ${selectedItems.length} ร้าน`);
+    lines.push("");
+
+    for (const topic of SUMMARY_TOPICS){
+      lines.push(topic.label);
+
+      const topicItems = selectedItems.filter((item) => !!normalizeSummarySelections(item.summarySelections)[topic.id]);
+      for (const item of topicItems){
+        const a = (item.account || "").trim();
+        const bc = (item.branchCode || "").trim();
+        const bn = (item.branchName || "").trim();
+        lines.push(`- ${[a, bc, bn].filter(Boolean).join(" ").trim()}`);
+      }
+
+      lines.push("");
+    }
+
     return { text: lines.join("\n"), count: selectedItems.length };
   }
 
@@ -1779,6 +1920,9 @@
   bindSaveOnInput(locationArea);
   bindSaveOnInput(issue);
   bindSaveOnInput(note);
+  summaryTopicList.addEventListener("change", () => {
+    saveFormState();
+  });
 
   skuBoard.addEventListener("change", (event) => {
     const target = event.target;
@@ -1840,6 +1984,7 @@
         issue.value = "";
         note.value = DEFAULT_NOTE_TEMPLATE;
         clearAllSkuChecks();
+        applySummarySelectionsToDom({});
         saveFormState();
         updatePreview();
         setStatus("wait", "ล้างฟอร์มแล้ว");
@@ -1865,6 +2010,7 @@
     issue.value = noted.issue || "";
     note.value = noteValueOrDefault(noted.note);
     applySkuChecksToDom(noted.skuChecks || {});
+    applySummarySelectionsToDom(noted.summarySelections || {});
     updatePreview();
     setStatus("wait", "Prefill แล้ว (Popup)");
   }
@@ -1918,6 +2064,7 @@
   function boot(){
     customerGroup.textContent = FIXED_CUSTOMER_GROUP;
     renderLocationOptions();
+    renderSummaryTopics();
     renderSkuLists();
     loadGlobalSkuFlags();
     applyGlobalFlagsToDom();

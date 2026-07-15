@@ -1185,6 +1185,12 @@
     HISTORY: 'PT_REPORT_HISTORY_V1'
   };
   const REPORT_HISTORY_MAX = 240;
+  const REPORT_SUMMARY_TOPICS = [
+    { id: 'brush_advanced_b1g1', label: '⛔สรุปแปรงแอดวานซ์ 1แถม1' },
+    { id: 'brush_pack3_b1g1', label: '⛔สรุปแปรงแพ็ค3 1แถม1' },
+    { id: 'acne_scar_5g_b1g1', label: '⛔สรุปแอคเน่สการ์5G 1แถม1' },
+    { id: 'acne_gel_5g_b1g1', label: '⛔สรุปเจลแต้มสิว5G 1แถม1' }
+  ];
   const WRITE_COOLDOWN_MS = 450;
 
   const SETTINGS_KEY = 'PT_GBKK4_SETTINGS_V1';
@@ -2110,7 +2116,7 @@
   }
 
   function reportNotedDefaults_(){
-    return { locationArea:'', issue:'', note:'', skuChecks:{} };
+    return { locationArea:'', issue:'', note:'', skuChecks:{}, summarySelections:{} };
   }
 
   function normalizeSkuChecksMap_(raw){
@@ -2130,6 +2136,55 @@
       var key = String(keys[j] || '').trim();
       if(!key) continue;
       out[key] = !!raw[key];
+    }
+
+    return out;
+  }
+
+  function normalizeSummarySelectionsMap_(raw){
+    var out = {};
+    if(!raw || typeof raw !== 'object') return out;
+
+    if(Array.isArray(raw)){
+      for(var i=0;i<raw.length;i++){
+        var id = String(raw[i] || '').trim();
+        if(!id) continue;
+        if(!REPORT_SUMMARY_TOPICS.some(function(topic){ return topic.id === id; })) continue;
+        out[id] = true;
+      }
+      return out;
+    }
+
+    for(var j=0;j<REPORT_SUMMARY_TOPICS.length;j++){
+      var topic = REPORT_SUMMARY_TOPICS[j];
+      out[topic.id] = !!raw[topic.id];
+    }
+
+    return out;
+  }
+
+  function sameSummarySelections_(a, b){
+    var left = normalizeSummarySelectionsMap_(a);
+    var right = normalizeSummarySelectionsMap_(b);
+
+    for(var i=0;i<REPORT_SUMMARY_TOPICS.length;i++){
+      var id = REPORT_SUMMARY_TOPICS[i].id;
+      if(!!left[id] !== !!right[id]) return false;
+    }
+
+    return true;
+  }
+
+  function readReportSummarySelectionsFromDoc_(doc){
+    var out = {};
+    if(!doc) return out;
+
+    for(var i=0;i<REPORT_SUMMARY_TOPICS.length;i++){
+      var topic = REPORT_SUMMARY_TOPICS[i];
+      var el = doc.querySelector('[data-summary-id="' + topic.id + '"]');
+      if(el && !!el.checked){
+        out[topic.id] = true;
+      }
     }
 
     return out;
@@ -2167,6 +2222,7 @@
     if(obj.issue !== undefined && obj.issue !== null) out.issue = String(obj.issue);
     if(obj.note !== undefined && obj.note !== null) out.note = String(obj.note);
     out.skuChecks = normalizeSkuChecksMap_(obj.skuChecks || obj.checkedSkus || {});
+    out.summarySelections = normalizeSummarySelectionsMap_(obj.summarySelections || obj.summaryChecks || obj.summaryTopics || {});
 
     return out;
   }
@@ -2180,11 +2236,12 @@
     var session = getReportSession_();
 
     var notedPayload = {
-      v: 2,
+      v: 3,
       locationArea: String(noted.locationArea || ''),
       issue: String(noted.issue || ''),
       note: String(noted.note || ''),
-      skuChecks: normalizeSkuChecksMap_(noted.skuChecks || {})
+      skuChecks: normalizeSkuChecksMap_(noted.skuChecks || {}),
+      summarySelections: normalizeSummarySelectionsMap_(noted.summarySelections || {})
     };
 
     return {
@@ -2198,6 +2255,7 @@
       issue: notedPayload.issue,
       note: notedPayload.note,
       skuChecks: notedPayload.skuChecks,
+      summarySelections: notedPayload.summarySelections,
       noted: notedPayload
     };
   }
@@ -2618,17 +2676,7 @@
 
     var now = Date.now();
     var arr = readHistoryArray(win);
-
-    for(var i=0;i<Math.min(arr.length, 12);i++){
-      var it = arr[i];
-      if(!it) continue;
-      var sameText = String(it.reportText || '') === reportText;
-      var t = Number(it.createdAt || 0);
-      if(sameText && (Math.abs(now - t) <= 10000 || t === 0)) return;
-    }
-
     function gv(id){ var el = doc.getElementById(id); return el ? String(el.value || '').trim() : ''; }
-
     var entry = {
       id: String(Date.now()) + '_' + Math.random().toString(16).slice(2),
       createdAt: now,
@@ -2636,8 +2684,18 @@
       reportText: reportText,
       account: gv('account'),
       branchCode: gv('branchCode'),
-      branchName: gv('branchName')
+      branchName: gv('branchName'),
+      summarySelections: readReportSummarySelectionsFromDoc_(doc)
     };
+
+    for(var i=0;i<Math.min(arr.length, 12);i++){
+      var it = arr[i];
+      if(!it) continue;
+      var sameText = String(it.reportText || '') === reportText;
+      var sameSummary = sameSummarySelections_(it.summarySelections, entry.summarySelections);
+      var t = Number(it.createdAt || 0);
+      if(sameText && sameSummary && (Math.abs(now - t) <= 10000 || t === 0)) return;
+    }
 
     arr.unshift(entry);
     if(arr.length > REPORT_HISTORY_MAX) arr = arr.slice(0, REPORT_HISTORY_MAX);
@@ -2652,6 +2710,7 @@
 
     var now = Number(payload.copiedAt || 0);
     if(!(isFinite(now) && now > 0)) now = Date.now();
+    var src = (payload.noted && typeof payload.noted === 'object') ? payload.noted : payload;
 
     var entry = {
       id: String(now) + '_' + Math.random().toString(16).slice(2),
@@ -2660,7 +2719,8 @@
       reportText: reportText,
       account: payload.account ? String(payload.account).trim() : '',
       branchCode: payload.branchCode ? String(payload.branchCode).trim() : '',
-      branchName: payload.branchName ? String(payload.branchName).trim() : ''
+      branchName: payload.branchName ? String(payload.branchName).trim() : '',
+      summarySelections: normalizeSummarySelectionsMap_(src ? (src.summarySelections || src.summaryChecks || src.summaryTopics || {}) : {})
     };
 
     var arr = readHistoryArray(window);
@@ -2671,8 +2731,9 @@
       var sameAcc = String(it.account || '') === entry.account;
       var sameCode = String(it.branchCode || '') === entry.branchCode;
       var sameName = String(it.branchName || '') === entry.branchName;
+      var sameSummary = sameSummarySelections_(it.summarySelections, entry.summarySelections);
       var t = Number(it.createdAt || 0);
-      if(sameText && sameAcc && sameCode && sameName && (Math.abs(now - t) <= 5000 || t === 0)){
+      if(sameText && sameAcc && sameCode && sameName && sameSummary && (Math.abs(now - t) <= 5000 || t === 0)){
         return false;
       }
     }
@@ -2827,13 +2888,15 @@
     if(src && src.issue !== undefined && src.issue !== null) out.issue = String(src.issue);
     if(src && src.note !== undefined && src.note !== null) out.note = String(src.note);
     out.skuChecks = normalizeSkuChecksMap_(src ? (src.skuChecks || src.checkedSkus || {}) : {});
+    out.summarySelections = normalizeSummarySelectionsMap_(src ? (src.summarySelections || src.summaryChecks || src.summaryTopics || {}) : {});
 
     var rec = {
-      v: 2,
+      v: 3,
       locationArea: out.locationArea,
       issue: out.issue,
       note: out.note,
-      skuChecks: out.skuChecks
+      skuChecks: out.skuChecks,
+      summarySelections: out.summarySelections
     };
 
     if(payload.reportDateISO){
