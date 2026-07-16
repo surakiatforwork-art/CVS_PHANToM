@@ -675,6 +675,11 @@
   const MONTHLY_FLAG_NONE = "";
   const MONTHLY_FLAG_FOCUS = "focus";
   const MONTHLY_FLAG_SKIP = "skip";
+  const DEFAULT_ISSUE_TEMPLATE = [
+    "- ฝากสั่งสินค้าเรียบร้อย",
+    "- จัดเรียงหันหน้าตัวสินค้าและทำความสะอาดสินค้าและชั้นวางเรียบร้อย",
+    "- สาขาติดป้ายสื่อโปรโมชั่นเรียบร้อย"
+  ].join("\n");
   const DEFAULT_NOTE_TEMPLATE = [
     "🪧สื่อโปรโมชั่น",
     "⭐SME โฟมขาวไวท์ 1oz : ",
@@ -927,11 +932,16 @@
   function defaultNotedState(){
     return {
       locationArea: "",
-      issue: "",
+      issue: DEFAULT_ISSUE_TEMPLATE,
       note: DEFAULT_NOTE_TEMPLATE,
       skuChecks: {},
       summarySelections: {}
     };
+  }
+
+  function issueValueOrDefault(value){
+    const text = String(value ?? "");
+    return text.trim() ? text : DEFAULT_ISSUE_TEMPLATE;
   }
 
   function noteValueOrDefault(value){
@@ -990,7 +1000,7 @@
       out.locationArea = String(source.locationArea);
     }
     if (source.issue !== undefined && source.issue !== null){
-      out.issue = String(source.issue);
+      out.issue = issueValueOrDefault(source.issue);
     }
     if (source.note !== undefined && source.note !== null){
       out.note = noteValueOrDefault(source.note);
@@ -1367,7 +1377,7 @@
     return {
       v: 3,
       locationArea: String(locationArea.value || "").trim(),
-      issue: safeText(issue.value).trimEnd(),
+      issue: safeText(issueValueOrDefault(issue.value)).trimEnd(),
       note: safeText(note.value).trimEnd(),
       skuChecks: collectSkuChecksFromDom(),
       summarySelections: collectSummarySelectionsFromDom()
@@ -1393,7 +1403,7 @@
   function buildReportText(){
     const d = parseISODate(reportDate.value) || new Date();
     const locationText = safeText(locationArea.value).trim();
-    const issueText = safeText(issue.value).trimEnd();
+    const issueText = safeText(issueValueOrDefault(issue.value)).trimEnd();
     const noteText = safeText(note.value).trimEnd();
 
     const lines = [
@@ -1528,7 +1538,7 @@
       data.branchCode = branchCode.value || "";
       data.branchName = branchName.value || "";
       data.locationArea = locationArea.value || "";
-      data.issue = issue.value || "";
+      data.issue = issueValueOrDefault(issue.value);
       data.note = noteValueOrDefault(note.value);
       data.skuChecks = collectSkuChecksFromDom();
       data.summarySelections = collectSummarySelectionsFromDom();
@@ -1555,7 +1565,7 @@
       branchCode.value = data.branchCode || "";
       branchName.value = data.branchName || "";
       locationArea.value = data.locationArea || "";
-      issue.value = data.issue || "";
+      issue.value = issueValueOrDefault(data.issue);
       note.value = noteValueOrDefault(data.note);
       applySkuChecksToDom(data.skuChecks || {});
       applySummarySelectionsToDom(data.summarySelections || {});
@@ -1564,7 +1574,7 @@
       branchCode.value = "";
       branchName.value = "";
       locationArea.value = "";
-      issue.value = "";
+      issue.value = DEFAULT_ISSUE_TEMPLATE;
       note.value = DEFAULT_NOTE_TEMPLATE;
       applySkuChecksToDom({});
       applySummarySelectionsToDom({});
@@ -1981,7 +1991,7 @@
         branchCode.value = "";
         branchName.value = "";
         locationArea.value = "";
-        issue.value = "";
+        issue.value = DEFAULT_ISSUE_TEMPLATE;
         note.value = DEFAULT_NOTE_TEMPLATE;
         clearAllSkuChecks();
         applySummarySelectionsToDom({});
@@ -2007,7 +2017,7 @@
     if (own("branchName")) branchName.value = String(payload.branchName ?? "").trim();
 
     locationArea.value = noted.locationArea || "";
-    issue.value = noted.issue || "";
+    issue.value = issueValueOrDefault(noted.issue);
     note.value = noteValueOrDefault(noted.note);
     applySkuChecksToDom(noted.skuChecks || {});
     applySummarySelectionsToDom(noted.summarySelections || {});
@@ -2078,6 +2088,7 @@
     }
 
     if (!reportDate.value) reportDate.value = todayISO();
+    issue.value = issueValueOrDefault(issue.value);
     note.value = noteValueOrDefault(note.value);
 
     updatePreview();
