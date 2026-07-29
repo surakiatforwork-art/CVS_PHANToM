@@ -672,6 +672,8 @@
   const TEAM_REPORT = "CVS: 20";
   const TEAM_SUMMARY = "CVS 20";
   const FIXED_CUSTOMER_GROUP = "ทั่วไป";
+  const REPORT_DATE_MODE_AUTO = "auto";
+  const REPORT_DATE_MODE_MANUAL = "manual";
   const MONTHLY_FLAG_NONE = "";
   const MONTHLY_FLAG_FOCUS = "focus";
   const MONTHLY_FLAG_SKIP = "skip";
@@ -717,7 +719,10 @@
     { id: "brush_advanced_b1g1", label: "⛔สรุปแปรงแอดวานซ์ 1แถม1" },
     { id: "brush_pack3_b1g1", label: "⛔สรุปแปรงแพ็ค3 1แถม1" },
     { id: "acne_scar_5g_b1g1", label: "⛔สรุปแอคเน่สการ์5G 1แถม1" },
-    { id: "acne_gel_5g_b1g1", label: "⛔สรุปเจลแต้มสิว5G 1แถม1" }
+    { id: "acne_gel_5g_b1g1", label: "⛔สรุปเจลแต้มสิว5G 1แถม1" },
+    { id: "travel_brush_set_b1g1", label: "⛔สรุปแปรงชุดเดินทาง 1แถม1" },
+    { id: "floss_b1g1", label: "⛔สรุปไหมขัดฟัน 1แถม1" },
+    { id: "dentiste_max_45g_b1g1", label: "⛔สรุปเดนทิสเต้ MAX 45G 1แถม1" }
   ];
 
   const SKU_ITEMS = [
@@ -864,6 +869,7 @@
   let modalOnYes = null;
   let embedPrefillContext = { placeId: "", reportToken: "", sheetName: "" };
   let globalSkuFlags = {};
+  let reportDateMode = REPORT_DATE_MODE_AUTO;
 
   const pad2 = (n) => String(n).padStart(2, "0");
 
@@ -879,6 +885,39 @@
     const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     if (!Number.isFinite(d.getTime())) return null;
     return d;
+  }
+
+  function normalizeReportDateMode(value){
+    return value === REPORT_DATE_MODE_MANUAL ? REPORT_DATE_MODE_MANUAL : REPORT_DATE_MODE_AUTO;
+  }
+
+  function getReportDateModeForValue(value){
+    const iso = String(value || "").trim();
+    return (iso && iso !== todayISO()) ? REPORT_DATE_MODE_MANUAL : REPORT_DATE_MODE_AUTO;
+  }
+
+  function resolveStoredReportDate(rawValue, rawMode){
+    const today = todayISO();
+    const value = String(rawValue || "").trim();
+    const parsed = parseISODate(value);
+    const mode = normalizeReportDateMode(rawMode);
+
+    if (mode === REPORT_DATE_MODE_MANUAL && parsed && value !== today){
+      return { value, mode };
+    }
+
+    return { value: today, mode: REPORT_DATE_MODE_AUTO };
+  }
+
+  function syncReportDateModeFromInput(){
+    reportDateMode = getReportDateModeForValue(reportDate.value);
+  }
+
+  function saveReportDateStateOnly(){
+    const base = loadJSON(STORE_FORM, {}) || {};
+    base.reportDate = reportDate.value || "";
+    base.reportDateMode = normalizeReportDateMode(reportDateMode);
+    saveJSON(STORE_FORM, base);
   }
 
   function formatReportDateBuddhist2(d){
@@ -1530,7 +1569,8 @@
     const base = loadJSON(STORE_FORM, {}) || {};
     const data = {
       ...base,
-      reportDate: reportDate.value || ""
+      reportDate: reportDate.value || "",
+      reportDateMode: normalizeReportDateMode(reportDateMode)
     };
 
     if (!EMBED){
@@ -1558,7 +1598,11 @@
 
   function loadFormState(){
     const data = loadJSON(STORE_FORM, null);
-    if (!data) return;
+    if (!data){
+      reportDate.value = "";
+      reportDateMode = REPORT_DATE_MODE_AUTO;
+      return false;
+    }
 
     if (!EMBED){
       account.value = data.account || "";
@@ -1580,7 +1624,11 @@
       applySummarySelectionsToDom({});
     }
 
-    reportDate.value = data.reportDate || "";
+    const resolvedDate = resolveStoredReportDate(data.reportDate, data.reportDateMode);
+    reportDate.value = resolvedDate.value;
+    reportDateMode = resolvedDate.mode;
+    return resolvedDate.value !== String(data.reportDate || "").trim()
+      || reportDateMode !== normalizeReportDateMode(data.reportDateMode);
   }
 
   function loadUIState(){
@@ -1921,6 +1969,7 @@
   }
 
   reportDate.addEventListener("change", () => {
+    syncReportDateModeFromInput();
     saveFormState();
     updatePreview();
   });
@@ -2078,7 +2127,7 @@
     renderSkuLists();
     loadGlobalSkuFlags();
     applyGlobalFlagsToDom();
-    loadFormState();
+    const reportDateAdjusted = loadFormState();
     loadHistory();
 
     if (!EMBED){
@@ -2087,9 +2136,16 @@
       saveHistory();
     }
 
-    if (!reportDate.value) reportDate.value = todayISO();
+    if (!reportDate.value){
+      reportDate.value = todayISO();
+      reportDateMode = REPORT_DATE_MODE_AUTO;
+    }
     issue.value = issueValueOrDefault(issue.value);
     note.value = noteValueOrDefault(note.value);
+
+    if (reportDateAdjusted){
+      saveReportDateStateOnly();
+    }
 
     updatePreview();
     applyEmbedModeUI();
