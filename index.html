@@ -180,6 +180,10 @@
       position:relative;
       flex:0 0 auto;
     }
+    .routepick{
+      position:relative;
+      flex:0 0 auto;
+    }
 
     .sheetbtn{
       display:inline-flex;
@@ -200,7 +204,8 @@
     .sheetbtn:active{transform:scale(.99)}
 
     .pickrow .sheetpick,
-    .pickrow .sortpick{
+    .pickrow .sortpick,
+    .pickrow .routepick{
       flex:1 1 0;
       min-width:0;
     }
@@ -575,6 +580,11 @@
     .marker-visited{
       filter:grayscale(1);
       opacity:.72;
+    }
+    .route-select{
+      appearance:none;
+      -webkit-appearance:none;
+      text-align:center;
     }
 
     .map-done{
@@ -1063,6 +1073,12 @@
       </div>
     </div>
 
+    <div class="routepick">
+      <select id="routeFilter" class="sheetbtn route-select" aria-label="กรอง Route">
+        <option value="">ทุก Route</option>
+      </select>
+    </div>
+
     <!-- hidden select used as state -->
     <select id="sortMode" aria-label="เรียงลำดับ" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0">
       <option value="default">ค่าเดิม</option>
@@ -1202,7 +1218,7 @@
 
   const SETTINGS_KEY = 'PT_GBKK4_SETTINGS_V1';
   const SELECTED_SHEET_KEY = 'PT_GBKK_SELECTED_SHEET_V1';
-  const CACHE_KEY_BASE = 'PT_GBKK_PLACES_CACHE_V2';
+  const CACHE_KEY_BASE = 'PT_GBKK_PLACES_CACHE_V3';
   const MAPSTATE_KEY = 'PT_GBKK4_MAPSTATE_V1';
 
   function $(id){ return document.getElementById(id); }
@@ -1935,6 +1951,11 @@
       arr = arr.filter(function(p){ return !p.visited; });
     }
 
+    var route = $('routeFilter') ? String($('routeFilter').value || '') : '';
+    if(route){
+      arr = arr.filter(function(p){ return String((p && p.route) || '') === route; });
+    }
+
     if(q){
       arr = arr.filter(function(p){
         var id = (p && p.id) ? String(p.id).toLowerCase() : '';
@@ -1975,6 +1996,23 @@
     }
 
     return arr;
+  }
+
+  function renderRouteFilter_(){
+    var select = $('routeFilter');
+    if(!select) return;
+    var current = String(select.value || '');
+    var routes = [];
+    var seen = {};
+    PLACES.forEach(function(p){
+      var route = String((p && p.route) || '').trim();
+      if(route && !seen[route]){ seen[route] = true; routes.push(route); }
+    });
+    routes.sort(function(a,b){ return a.localeCompare(b, 'th', { numeric:true }); });
+    select.innerHTML = '<option value="">ทุก Route</option>' + routes.map(function(route){
+      return '<option value="' + escapeHtml(route) + '">Route ' + escapeHtml(route) + '</option>';
+    }).join('');
+    if(routes.indexOf(current) !== -1) select.value = current;
   }
 
   function renderHeader(){
@@ -3024,6 +3062,7 @@
     };
 
     PLACES = (res && res.places) ? res.places.filter(function(p){ return p && p.id && p.name; }) : [];
+    renderRouteFilter_();
     renderList();
     if(map) renderMap();
 
@@ -3071,6 +3110,7 @@
       };
 
       PLACES = (res && res.places) ? res.places.filter(function(p){ return p && p.id && p.name; }) : [];
+      renderRouteFilter_();
       cacheWrite_(res, sheetAtCall);
 
       renderList();
@@ -3359,6 +3399,7 @@
   }, 90);
 
   $('q').addEventListener('input', rerenderAll);
+  $('routeFilter').addEventListener('change', rerenderAll);
   $('sortMode').addEventListener('change', function(){
     $('sortLabel').textContent = sortLabelFor_($('sortMode').value);
     renderSortList_();

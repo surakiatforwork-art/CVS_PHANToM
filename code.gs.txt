@@ -10,7 +10,7 @@ const CONFIG = {
   TIMEZONE: 'Asia/Bangkok',
   LAST_VISITED_HEADER: 'lastVisitedDate',
   NOTED_HEADER: 'noted',
-  PLACES_SCHEMA_VERSION: 2,
+  PLACES_SCHEMA_VERSION: 3,
 };
 
 function doGet(e) {
@@ -82,7 +82,7 @@ function api_getPlaces_(sheetParam) {
   }
 
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'places_v2_' + sheetName + '_rev_' + rev;
+  const cacheKey = 'places_v3_' + sheetName + '_rev_' + rev;
   const cached = cache.get(cacheKey);
   if (cached) {
     try {
@@ -105,6 +105,7 @@ function api_getPlaces_(sheetParam) {
   const colNumber = pickCol_(headerMap, ['number', 'branch', 'branch_number', 'store_no']);
   const colAccountName = pickCol_(headerMap, ['account_name', 'accountname', 'store_name', 'branch_name']);
   const colNoted = pickCol_(headerMap, ['noted']);
+  const colRoute = pickCol_(headerMap, ['route', 'route_no', 'route_number', 'routeno', 'รูท', 'เส้นทาง']);
 
   const maxNeedCol = Math.max(
     colList,
@@ -116,7 +117,8 @@ function api_getPlaces_(sheetParam) {
     colAccount || 0,
     colNumber || 0,
     colAccountName || 0,
-    colNoted || 0
+    colNoted || 0,
+    colRoute || 0
   );
 
   const numRows = lastRow - CONFIG.HEADER_ROW;
@@ -149,6 +151,7 @@ function api_getPlaces_(sheetParam) {
     const number = colNumber ? safeStr_(row[colNumber - 1]) : '';
     const account_name = colAccountName ? safeStr_(row[colAccountName - 1]) : '';
     const noted = colNoted ? safeStr_(row[colNoted - 1]) : '';
+    const route = colRoute ? safeStr_(row[colRoute - 1]) : '';
 
     const lastVisitedDate = colLastVisitedDate ? toYMD_(row[colLastVisitedDate - 1]) : '';
 
@@ -162,6 +165,7 @@ function api_getPlaces_(sheetParam) {
       number,
       account_name,
       noted: noted || '',
+      route: route || '',
       visited: isVisited,
       lastVisitedDate: lastVisitedDate || '',
     });
@@ -238,7 +242,7 @@ function api_markVisited_(idParam, sheetParam) {
     lastDateCell.setValue(todayYMD);
 
     const rev = bumpRev_(sheetName);
-    CacheService.getScriptCache().remove('places_v2_' + sheetName + '_rev_' + oldRev);
+    CacheService.getScriptCache().remove('places_v3_' + sheetName + '_rev_' + oldRev);
 
     return { ok: true, id, rev, lastVisitedDate: todayYMD, message: isVisited ? 'Updated visited date' : 'Marked visited' };
   } finally {
@@ -275,7 +279,7 @@ function api_resetVisitedAll_(sheetParam) {
     colRange.setValues(reset);
 
     const rev = bumpRev_(sheetName);
-    CacheService.getScriptCache().remove('places_v2_' + sheetName + '_rev_' + oldRev);
+    CacheService.getScriptCache().remove('places_v3_' + sheetName + '_rev_' + oldRev);
 
     return { ok: true, rev, message: 'Reset visited all' };
   } finally {
@@ -335,7 +339,7 @@ function api_saveNoted_(idParam, notedParam, sheetParam) {
     notedCell.setValue(noted);
 
     const rev = bumpRev_(sheetName);
-    CacheService.getScriptCache().remove('places_v2_' + sheetName + '_rev_' + oldRev);
+    CacheService.getScriptCache().remove('places_v3_' + sheetName + '_rev_' + oldRev);
 
     return { ok: true, id, rev, message: 'Saved noted' };
   } finally {
