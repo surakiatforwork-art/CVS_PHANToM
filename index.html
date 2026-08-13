@@ -2887,6 +2887,44 @@
     }
   }
 
+  function historyCopyDayKey_(timestamp){
+    var date = new Date(Number(timestamp || 0) || Date.now());
+    return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+  }
+
+  function historyStorePart_(value){
+    return String(value || '').trim().toLocaleLowerCase('th').replace(/\s+/g, ' ');
+  }
+
+  function sameHistoryStore_(a, b){
+    var placeA = String((a && a.placeId) || '').trim();
+    var placeB = String((b && b.placeId) || '').trim();
+    var sheetA = historyStorePart_(a && a.sheetName);
+    var sheetB = historyStorePart_(b && b.sheetName);
+    if(placeA && placeB && sheetA && sheetB) return placeA === placeB && sheetA === sheetB;
+    var codeA = historyStorePart_(a && a.branchCode);
+    var codeB = historyStorePart_(b && b.branchCode);
+    var nameA = historyStorePart_(a && a.branchName);
+    var nameB = historyStorePart_(b && b.branchName);
+    if((!codeA && !nameA) || (!codeB && !nameB)) return false;
+    return historyStorePart_(a && a.account) === historyStorePart_(b && b.account)
+      && codeA === codeB
+      && nameA === nameB;
+  }
+
+  function upsertHistoryArray_(arr, entry){
+    arr = Array.isArray(arr) ? arr.slice() : [];
+    var matchIndex = arr.findIndex(function(item){
+      return item && historyCopyDayKey_(item.createdAt) === historyCopyDayKey_(entry.createdAt) && sameHistoryStore_(item, entry);
+    });
+    if(matchIndex >= 0){
+      entry.id = String(arr[matchIndex].id || entry.id);
+      arr.splice(matchIndex, 1);
+    }
+    arr.unshift(entry);
+    return arr.slice(0, REPORT_HISTORY_MAX);
+  }
+
   function ensureHistoryExistsFallback(){
     var doc = getReportDoc();
     var win = getReportWin();
@@ -2902,6 +2940,8 @@
     var entry = {
       id: String(Date.now()) + '_' + Math.random().toString(16).slice(2),
       createdAt: now,
+      placeId: REPORT_SESSION ? String(REPORT_SESSION.placeId || '') : '',
+      sheetName: REPORT_SESSION ? String(REPORT_SESSION.sheetName || '') : '',
       reportDateISO: gv('reportDate'),
       reportText: reportText,
       account: gv('account'),
@@ -2910,17 +2950,7 @@
       summarySelections: readReportSummarySelectionsFromDoc_(doc)
     };
 
-    for(var i=0;i<Math.min(arr.length, 12);i++){
-      var it = arr[i];
-      if(!it) continue;
-      var sameText = String(it.reportText || '') === reportText;
-      var sameSummary = sameSummarySelections_(it.summarySelections, entry.summarySelections);
-      var t = Number(it.createdAt || 0);
-      if(sameText && sameSummary && (Math.abs(now - t) <= 10000 || t === 0)) return;
-    }
-
-    arr.unshift(entry);
-    if(arr.length > REPORT_HISTORY_MAX) arr = arr.slice(0, REPORT_HISTORY_MAX);
+    arr = upsertHistoryArray_(arr, entry);
     writeHistoryArray(win, arr);
   }
 
@@ -2937,6 +2967,8 @@
     var entry = {
       id: String(now) + '_' + Math.random().toString(16).slice(2),
       createdAt: now,
+      placeId: payload.placeId ? String(payload.placeId).trim() : '',
+      sheetName: payload.sheetName ? String(payload.sheetName).trim() : '',
       reportDateISO: payload.reportDateISO ? String(payload.reportDateISO) : '',
       reportText: reportText,
       account: payload.account ? String(payload.account).trim() : '',
@@ -2945,23 +2977,7 @@
       summarySelections: normalizeSummarySelectionsMap_(src ? (src.summarySelections || src.summaryChecks || src.summaryTopics || {}) : {})
     };
 
-    var arr = readHistoryArray(window);
-    for(var i=0;i<Math.min(arr.length, 12);i++){
-      var it = arr[i];
-      if(!it) continue;
-      var sameText = String(it.reportText || '') === entry.reportText;
-      var sameAcc = String(it.account || '') === entry.account;
-      var sameCode = String(it.branchCode || '') === entry.branchCode;
-      var sameName = String(it.branchName || '') === entry.branchName;
-      var sameSummary = sameSummarySelections_(it.summarySelections, entry.summarySelections);
-      var t = Number(it.createdAt || 0);
-      if(sameText && sameAcc && sameCode && sameName && sameSummary && (Math.abs(now - t) <= 5000 || t === 0)){
-        return false;
-      }
-    }
-
-    arr.unshift(entry);
-    if(arr.length > REPORT_HISTORY_MAX) arr = arr.slice(0, REPORT_HISTORY_MAX);
+    var arr = upsertHistoryArray_(readHistoryArray(window), entry);
     return writeHistoryArray(window, arr);
   }
 

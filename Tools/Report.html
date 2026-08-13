@@ -1063,6 +1063,8 @@
     return {
       id: item.id ? String(item.id) : makeId(),
       createdAt,
+      placeId: String(item.placeId || "").trim(),
+      sheetName: String(item.sheetName || "").trim(),
       reportDateISO: String(item.reportDateISO || "").trim(),
       reportText,
       account: safeText(item.account).trim(),
@@ -1199,6 +1201,49 @@
     const options = ['<option value="">— เลือกบริเวณ —</option>']
       .concat(LOCATION_OPTIONS.map((value) => `<option value="${escapeHtmlAttr(value)}">${escapeHtml(value)}</option>`));
     locationArea.innerHTML = options.join("");
+  }
+
+  function localCopyDayKey(timestamp){
+    const date = new Date(Number(timestamp || 0) || Date.now());
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  function normalizedStorePart(value){
+    return safeText(value).trim().toLocaleLowerCase("th").replace(/\s+/g, " ");
+  }
+
+  function sameHistoryStore(a, b){
+    const placeA = String(a.placeId || "").trim();
+    const placeB = String(b.placeId || "").trim();
+    const sheetA = normalizedStorePart(a.sheetName);
+    const sheetB = normalizedStorePart(b.sheetName);
+    if (placeA && placeB && sheetA && sheetB) return placeA === placeB && sheetA === sheetB;
+    const codeA = normalizedStorePart(a.branchCode);
+    const codeB = normalizedStorePart(b.branchCode);
+    const nameA = normalizedStorePart(a.branchName);
+    const nameB = normalizedStorePart(b.branchName);
+    if ((!codeA && !nameA) || (!codeB && !nameB)) return false;
+    return normalizedStorePart(a.account) === normalizedStorePart(b.account)
+      && codeA === codeB
+      && nameA === nameB;
+  }
+
+  function isSameDayStoreEntry(a, b){
+    return !!a && !!b && localCopyDayKey(a.createdAt) === localCopyDayKey(b.createdAt) && sameHistoryStore(a, b);
+  }
+
+  function upsertHistoryEntry(entry, ...lists){
+    const normalized = normalizeHistoryEntry(entry);
+    if (!normalized) return null;
+    const all = mergeHistoryLists(...lists);
+    const previous = all.find((item) => isSameDayStoreEntry(item, normalized));
+    if (previous){
+      normalized.id = previous.id;
+      if (selectedIds.has(previous.id)) selectedIds.add(normalized.id);
+    }
+    history = [normalized, ...all.filter((item) => item.id !== normalized.id && !isSameDayStoreEntry(item, normalized))]
+      .slice(0, MAX_HISTORY_ITEMS);
+    return normalized;
   }
 
   function renderSummaryTopics(){
@@ -1666,6 +1711,8 @@
     const entry = normalizeHistoryEntry({
       id: makeId(),
       createdAt: Date.now(),
+      placeId: String((embedPrefillContext && embedPrefillContext.placeId) || "").trim(),
+      sheetName: String((embedPrefillContext && embedPrefillContext.sheetName) || "").trim(),
       reportDateISO: reportDate.value || todayISO(),
       reportText,
       account: safeText(account.value).trim(),
@@ -1675,10 +1722,10 @@
     });
     if (!entry) return null;
 
-    history = mergeHistoryLists([entry], history, readStoredHistory());
+    const savedEntry = upsertHistoryEntry(entry, history, readStoredHistory());
     saveHistory(true);
     if (!EMBED) renderHistory();
-    return entry;
+    return savedEntry;
   }
 
   function deleteHistoryEntry(id){
