@@ -332,6 +332,7 @@
       border-color:rgba(239,68,68,.18);
       background:rgba(239,68,68,.08);
     }
+    .skuRow[hidden]{ display:none; }
     .summaryTopicHint{
       margin:2px 0 10px;
       color:var(--muted2);
@@ -770,7 +771,8 @@
     { id: "sme_radiant_glow_30ml_sachet", label: "SMEสมูทอี เรเดียนท์ โกลว์ 30 มล. (ซอง)", family: "SME" },
     { id: "sme_sun_zero_feel_5g_new", label: "SME สมูทอี ซัน ซีโร่ ฟีล ซ่าเช่ 5 กรัม (NEW)", family: "SME" },
     { id: "den_whitening_purple_100g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล 100 กรัม (NEW)", family: "DEN" },
-    { id: "den_whitening_purple_sachet_10g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล ซ่าเช่ 10 กรัม (NEW)", family: "DEN" }
+    { id: "den_whitening_purple_sachet_10g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล ซ่าเช่ 10 กรัม (NEW)", family: "DEN" },
+    { id: "sme_baby_face_acne_5_detoxify_new", label: "SME โฟมเบบี้เฟซ แอคเน่-5 ดีท็อกซิฟาย (NEW)", family: "SME", accounts: ["7-ELEVEN"] }
   ];
 
   const LINE_GROUPS = {
@@ -1287,6 +1289,23 @@
     }
   }
 
+  function isSkuAvailableForAccount(item, accountValue = account.value){
+    if (!Array.isArray(item.accounts) || item.accounts.length === 0) return true;
+    const normalizedAccount = safeText(accountValue).trim().toUpperCase();
+    return item.accounts.some((allowed) => safeText(allowed).trim().toUpperCase() === normalizedAccount);
+  }
+
+  function getActiveSkuItems(){
+    return SKU_ITEMS.filter((item) => isSkuAvailableForAccount(item));
+  }
+
+  function updateSkuVisibility(){
+    for (const item of SKU_ITEMS){
+      const row = getSkuRow(item.id);
+      if (row) row.hidden = !isSkuAvailableForAccount(item);
+    }
+  }
+
   function getSkuRows(){
     return Array.from(skuBoard.querySelectorAll(".skuRow"));
   }
@@ -1388,6 +1407,7 @@
     const out = {};
 
     for (const row of getSkuRows()){
+      if (row.hidden) continue;
       const checkbox = row.querySelector('[data-role="check"]');
       if (!checkbox || checkbox.disabled || !checkbox.checked) continue;
       out[row.dataset.skuId] = true;
@@ -1399,6 +1419,7 @@
   function countCheckedByFamily(family){
     let count = 0;
     for (const row of getSkuRows()){
+      if (row.hidden) continue;
       if (row.dataset.family !== family) continue;
       const checkbox = row.querySelector('[data-role="check"]');
       if (checkbox && !checkbox.disabled && checkbox.checked) count++;
@@ -1504,7 +1525,7 @@
       ""
     ];
 
-    for (const item of SKU_ITEMS){
+    for (const item of getActiveSkuItems()){
       lines.push(buildSkuLine(item));
     }
 
@@ -1519,6 +1540,7 @@
   }
 
   function updatePreview(){
+    updateSkuVisibility();
     updateCounts();
     preview.textContent = buildReportText();
   }
