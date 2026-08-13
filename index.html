@@ -215,7 +215,8 @@
       min-width:0;
     }
     #sheetBtn span,
-    #sortBtn span{
+    #sortBtn span,
+    #routeBtn span{
       min-width:0;
       overflow:hidden;
       text-overflow:ellipsis;
@@ -238,6 +239,7 @@
       z-index:100010;
     }
     .sortpick .sheetdrop{ left:auto; right:0; }
+    .routepick .sheetdrop{ left:auto; right:0; }
     .sheetdrop.show{ display:block; }
 
     .sheetsearch{
@@ -347,9 +349,10 @@
     }
 
     main{
-      max-width:920px;
+      width:min(96%, 1280px);
+      max-width:none;
       margin:0 auto;
-      padding:14px;
+      padding:clamp(8px, 1.4vw, 18px) 0;
       padding-bottom: calc(14px + var(--bottomTabsH) + env(safe-area-inset-bottom));
     }
 
@@ -471,7 +474,7 @@
       white-space:nowrap;
     }
     .pill:active{ transform:scale(.99); }
-    #map{height:72vh; min-height:360px; width:100%}
+    #map{height:clamp(360px, 72dvh, 820px); width:100%}
 
     body.map-open main{
       height: calc(100vh - var(--hdrH) - var(--tabsH));
@@ -581,12 +584,6 @@
       filter:grayscale(1);
       opacity:.72;
     }
-    .route-select{
-      appearance:none;
-      -webkit-appearance:none;
-      text-align:center;
-    }
-
     .map-done{
       border-color:rgba(226,58,58,.28);
       background:rgba(226,58,58,.10);
@@ -642,7 +639,8 @@
       -webkit-backdrop-filter: blur(10px);
     }
     .bottom-tabs .row{
-      max-width:920px;
+      width:min(96%, 1280px);
+      max-width:none;
       margin:0 auto;
       display:flex;
       gap:10px;
@@ -988,6 +986,85 @@
       border-color:rgba(20,184,166,.35);
       color:#064e46;
     }
+
+    @media (max-width: 720px){
+      :root{ --bottomTabsH:72px; }
+      header{
+        padding:calc(8px + env(safe-area-inset-top)) 3% 8px;
+      }
+      .hdr{ gap:2.2vw; }
+      .hdr + .hdr{ margin-top:7px; }
+      .menu-btn{
+        min-width:11vw;
+        max-width:48px;
+        padding:0;
+      }
+      .title{ font-size:clamp(14px, 4vw, 17px); }
+      .topbar .rightbox{ gap:1.5vw; }
+      .badge{
+        padding:5px 2vw;
+        gap:1vw;
+        font-size:clamp(11px, 3.2vw, 13px);
+      }
+      .btn-map{
+        padding:8px 2.2vw;
+        font-size:clamp(11px, 3.2vw, 14px);
+      }
+      .pickrow{
+        display:grid;
+        grid-template-columns:minmax(0, 1fr) minmax(0, 1fr);
+        gap:2.2vw;
+      }
+      .pickrow .sheetpick,
+      .pickrow .sortpick,
+      .pickrow .routepick{
+        width:100%;
+      }
+      .pickrow .routepick{ grid-column:1 / -1; }
+      .sheetbtn{
+        padding:9px 3vw;
+        font-size:clamp(12px, 3.5vw, 14px);
+      }
+      .sheetdrop,
+      .sortpick .sheetdrop,
+      .routepick .sheetdrop{
+        position:fixed;
+        left:3%;
+        right:3%;
+        top:calc(var(--hdrH) - 2px);
+        width:94%;
+        max-height:min(58dvh, calc(100dvh - var(--hdrH) - var(--tabsH) - 12px));
+      }
+      main{ width:94%; }
+      .map-h{
+        padding:10px 3%;
+        gap:8px;
+      }
+      .map-h strong{ width:100%; }
+      .pills{
+        width:100%;
+        margin-left:0;
+        display:grid;
+        grid-template-columns:repeat(3, minmax(0, 1fr));
+        gap:1.5vw;
+      }
+      .pill{
+        padding:7px 1.2vw;
+        font-size:clamp(10px, 2.9vw, 12px);
+        text-align:center;
+        overflow:hidden;
+        text-overflow:ellipsis;
+      }
+      #map{ height:clamp(320px, 61dvh, 680px); min-height:0; }
+      .bottom-tabs .row{ width:94%; }
+    }
+
+    @media (max-width: 390px){
+      .title{ max-width:34vw; }
+      .badge{ padding-left:1.5vw; padding-right:1.5vw; }
+      .btn-map{ padding-left:1.8vw; padding-right:1.8vw; }
+      .icon-btn{ width:32px; min-width:32px; }
+    }
   </style>
 </head>
 
@@ -1073,11 +1150,17 @@
       </div>
     </div>
 
-    <div class="routepick">
-      <select id="routeFilter" class="sheetbtn route-select" aria-label="กรอง Route">
-        <option value="">ทุก Route</option>
-      </select>
+    <div class="routepick" id="routePicker">
+      <button id="routeBtn" class="sheetbtn" type="button">🛣️ <span id="routeLabel">ทุก Route</span> ▾</button>
+      <div id="routeDrop" class="sheetdrop" aria-hidden="true">
+        <div id="routeList" class="sheetlist"></div>
+      </div>
     </div>
+
+    <!-- hidden select used as route filter state -->
+    <select id="routeFilter" aria-label="กรอง Route" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0">
+      <option value="">ทุก Route</option>
+    </select>
 
     <!-- hidden select used as state -->
     <select id="sortMode" aria-label="เรียงลำดับ" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0">
@@ -1429,6 +1512,22 @@
     });
   }
 
+  async function jsonpWithRetry(url, timeoutMs, retryCount){
+    var lastError = null;
+    var attempts = Math.max(1, (retryCount || 0) + 1);
+    for(var attempt = 0; attempt < attempts; attempt++){
+      try{
+        return await jsonp(url, timeoutMs);
+      }catch(err){
+        lastError = err;
+        if(attempt + 1 >= attempts) break;
+        await new Promise(function(resolve){ setTimeout(resolve, 800); });
+        url += (url.indexOf('?') >= 0 ? '&' : '?') + '_retry=' + Date.now();
+      }
+    }
+    throw lastError || new Error('JSONP load error');
+  }
+
   function apiUrl(action, params){
     if(!CONFIG.API_URL || CONFIG.API_URL === 'PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE'){ return ''; }
     var base = CONFIG.API_URL;
@@ -1444,7 +1543,7 @@
   async function apiGetSheets(){
     var url = apiUrl('getSheets');
     if(!url) return { ok:false, message:'ยังไม่ได้ตั้งค่า CONFIG.API_URL' };
-    return await jsonp(url);
+    return await jsonpWithRetry(url, 30000, 1);
   }
 
   async function apiGetPlaces(sheetName){
@@ -1452,7 +1551,7 @@
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('getPlaces', params);
     if(!url) return { ok:false, message:'ยังไม่ได้ตั้งค่า CONFIG.API_URL' };
-    return await jsonp(url);
+    return await jsonpWithRetry(url, 60000, 1);
   }
 
   async function apiMarkVisited(id, sheetName){
@@ -1555,6 +1654,7 @@
 
   function openSheetDrop_(){
     closeSortDrop_();
+    closeRouteDrop_();
     $('sheetDrop').classList.add('show');
     $('sheetDrop').setAttribute('aria-hidden','false');
     setTimeout(function(){
@@ -1641,6 +1741,7 @@
 
   function openSortDrop_(){
     if(sheetDropIsOpen_()) closeSheetDrop_();
+    closeRouteDrop_();
     $('sortDrop').classList.add('show');
     $('sortDrop').setAttribute('aria-hidden','false');
   }
@@ -1727,6 +1828,77 @@
     if(!sortDropIsOpen_()) return;
     var p = ev.target && ev.target.closest ? ev.target.closest('#sortPicker') : null;
     if(!p) closeSortDrop_();
+  }, true);
+
+  function openRouteDrop_(){
+    closeSheetDrop_();
+    closeSortDrop_();
+    renderRouteList_();
+    $('routeDrop').classList.add('show');
+    $('routeDrop').setAttribute('aria-hidden','false');
+  }
+  function closeRouteDrop_(){
+    if(!$('routeDrop')) return;
+    $('routeDrop').classList.remove('show');
+    $('routeDrop').setAttribute('aria-hidden','true');
+  }
+  function routeDropIsOpen_(){
+    return $('routeDrop') && $('routeDrop').classList.contains('show');
+  }
+  function routeLabelFor_(route){
+    route = String(route || '').trim();
+    return route ? ('Route ' + route) : 'ทุก Route';
+  }
+  function renderRouteList_(){
+    var select = $('routeFilter');
+    if(!select) return;
+    var current = String(select.value || '');
+    var html = '';
+    for(var i=0;i<select.options.length;i++){
+      var option = select.options[i];
+      var value = String(option.value || '');
+      var active = value === current;
+      html +=
+        '<button class="sheetitem' + (active ? ' active' : '') + '" type="button" data-route="' + escapeHtml(value) + '">' +
+          '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(option.textContent || routeLabelFor_(value)) + '</span>' +
+          (active ? '<span>✓</span>' : '<span style="opacity:.65"> </span>') +
+        '</button>';
+    }
+    $('routeList').innerHTML = html;
+    $('routeLabel').textContent = routeLabelFor_(current);
+  }
+  function setRouteFilter_(route, fire){
+    var select = $('routeFilter');
+    if(!select) return;
+    route = String(route || '');
+    var exists = Array.prototype.some.call(select.options, function(option){
+      return String(option.value || '') === route;
+    });
+    select.value = exists ? route : '';
+    $('routeLabel').textContent = routeLabelFor_(select.value);
+    renderRouteList_();
+    if(fire) select.dispatchEvent(new Event('change', { bubbles:true }));
+  }
+
+  $('routeBtn').addEventListener('click', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    if(routeDropIsOpen_()) closeRouteDrop_();
+    else openRouteDrop_();
+  });
+
+  $('routeList').addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('button[data-route]') : null;
+    if(!btn) return;
+    var route = btn.getAttribute('data-route') || '';
+    closeRouteDrop_();
+    setRouteFilter_(route, true);
+  }, true);
+
+  document.addEventListener('click', function(ev){
+    if(!routeDropIsOpen_()) return;
+    var picker = ev.target && ev.target.closest ? ev.target.closest('#routePicker') : null;
+    if(!picker) closeRouteDrop_();
   }, true);
 
   function cacheKey_(sheetName){
@@ -2013,6 +2185,8 @@
       return '<option value="' + escapeHtml(route) + '">Route ' + escapeHtml(route) + '</option>';
     }).join('');
     if(routes.indexOf(current) !== -1) select.value = current;
+    else select.value = '';
+    renderRouteList_();
   }
 
   function renderHeader(){
@@ -3079,9 +3253,10 @@
     opts = opts || {};
     var forceSpinner = !!opts.force;
     var sheetAtCall = CURRENT_SHEET || '';
+    var usedCache = false;
 
     if(forceSpinner || (!PLACES || PLACES.length === 0)){
-      var usedCache = renderFromCacheIfAny_(sheetAtCall);
+      usedCache = renderFromCacheIfAny_(sheetAtCall);
       if(!usedCache) showLoading();
       else $('badgeText').textContent = 'กำลังอัปเดท…';
     }else{
@@ -3094,6 +3269,10 @@
 
       if(!res || !res.ok){
         console.error('getPlaces failed:', res);
+        if(usedCache || (PLACES && PLACES.length)){
+          $('badgeText').textContent = 'ใช้ข้อมูลที่บันทึกไว้';
+          return;
+        }
         $('badgeText').textContent = 'ผิดพลาด';
         $('list').innerHTML =
           '<div class="center">โหลดไม่สำเร็จ<br><span class="warn">' +
@@ -3118,6 +3297,10 @@
     }catch(err){
       if(sheetAtCall !== (CURRENT_SHEET || '')) return;
       console.error(err);
+      if(usedCache || (PLACES && PLACES.length)){
+        $('badgeText').textContent = 'ใช้ข้อมูลที่บันทึกไว้';
+        return;
+      }
       $('badgeText').textContent = 'ผิดพลาด';
       $('list').innerHTML =
         '<div class="center">โหลดไม่สำเร็จ<br><span class="warn">' + escapeHtml(err && err.message ? err.message : String(err)) + '</span></div>';
@@ -3436,6 +3619,7 @@
     if(e.key === 'Escape'){
       if(sheetDropIsOpen_()){ closeSheetDrop_(); return; }
       if(sortDropIsOpen_()){ closeSortDrop_(); return; }
+      if(routeDropIsOpen_()){ closeRouteDrop_(); return; }
       if(document.body.classList.contains('set-open')){ closeSettings(); return; }
       if(document.body.classList.contains('rep-open')){ closeReport(); return; }
       if(sidebarIsOpen()){ closeSidebar(); return; }
@@ -3471,6 +3655,7 @@
 
   updateFixedHeights();
   renderSortList_();
+  renderRouteList_();
   bootSheets_().then(function(){
     loadPlaces({ force:true });
   });

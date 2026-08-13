@@ -5,7 +5,8 @@ const CONFIG = {
   DATA_START_ROW: 2,
   VISITED_TRUE: 1,
   VISITED_FALSE: 0,
-  CACHE_TTL_SEC: 45,
+  CACHE_TTL_SEC: 300,
+  CACHE_CHUNK_CHARS: 25000,
   REV_PROP_KEY: 'GBKK4_REV_V1',
   TIMEZONE: 'Asia/Bangkok',
   LAST_VISITED_HEADER: 'lastVisitedDate',
@@ -83,7 +84,7 @@ function api_getPlaces_(sheetParam) {
 
   const cache = CacheService.getScriptCache();
   const cacheKey = 'places_v3_' + sheetName + '_rev_' + rev;
-  const cached = cache.get(cacheKey);
+  const cached = getChunkedCache_(cache, cacheKey);
   if (cached) {
     try {
       const parsed = JSON.parse(cached);
@@ -182,9 +183,7 @@ function api_getPlaces_(sheetParam) {
   };
 
   const json = JSON.stringify(result);
-  if (json.length <= 95000) {
-    cache.put(cacheKey, json, CONFIG.CACHE_TTL_SEC);
-  }
+  putChunkedCache_(cache, cacheKey, json, CONFIG.CACHE_TTL_SEC);
 
   return result;
 }
@@ -242,7 +241,7 @@ function api_markVisited_(idParam, sheetParam) {
     lastDateCell.setValue(todayYMD);
 
     const rev = bumpRev_(sheetName);
-    CacheService.getScriptCache().remove('places_v3_' + sheetName + '_rev_' + oldRev);
+    removeChunkedCache_(CacheService.getScriptCache(), 'places_v3_' + sheetName + '_rev_' + oldRev);
 
     return { ok: true, id, rev, lastVisitedDate: todayYMD, message: isVisited ? 'Updated visited date' : 'Marked visited' };
   } finally {
@@ -279,7 +278,7 @@ function api_resetVisitedAll_(sheetParam) {
     colRange.setValues(reset);
 
     const rev = bumpRev_(sheetName);
-    CacheService.getScriptCache().remove('places_v3_' + sheetName + '_rev_' + oldRev);
+    removeChunkedCache_(CacheService.getScriptCache(), 'places_v3_' + sheetName + '_rev_' + oldRev);
 
     return { ok: true, rev, message: 'Reset visited all' };
   } finally {
@@ -339,7 +338,7 @@ function api_saveNoted_(idParam, notedParam, sheetParam) {
     notedCell.setValue(noted);
 
     const rev = bumpRev_(sheetName);
-    CacheService.getScriptCache().remove('places_v3_' + sheetName + '_rev_' + oldRev);
+    removeChunkedCache_(CacheService.getScriptCache(), 'places_v3_' + sheetName + '_rev_' + oldRev);
 
     return { ok: true, id, rev, message: 'Saved noted' };
   } finally {
@@ -355,6 +354,50 @@ function ensureLastVisitedDateCol_(sheet, headerMap, lastCol) {
   sheet.getRange(CONFIG.HEADER_ROW, newCol).setValue(CONFIG.LAST_VISITED_HEADER);
   headerMap[normHeader_(CONFIG.LAST_VISITED_HEADER)] = newCol;
   return newCol;
+}
+
+function getChunkedCache_(cache, cacheKey) {
+  try {
+    const direct = cache.get(cacheKey);
+    if (direct) return direct;
+
+    const partCount = parseInt(cache.get(cacheKey + '_parts') || '0', 10);
+    if (!isFinite(partCount) || partCount < 1) return null;
+
+    const parts = [];
+    for (let i = 0; i < partCount; i++) {
+      const part = cache.get(cacheKey + '_part_' + i);
+      if (part === null) return null;
+      parts.push(part);
+    }
+    return parts.join('');
+  } catch (_) {
+    return null;
+  }
+}
+
+function putChunkedCache_(cache, cacheKey, value, ttlSec) {
+  try {
+    const chunkSize = CONFIG.CACHE_CHUNK_CHARS;
+    const partCount = Math.ceil(value.length / chunkSize);
+    for (let i = 0; i < partCount; i++) {
+      cache.put(cacheKey + '_part_' + i, value.slice(i * chunkSize, (i + 1) * chunkSize), ttlSec);
+    }
+    cache.put(cacheKey + '_parts', String(partCount), ttlSec);
+  } catch (_) {
+    // Cache is an optimization; a cache quota error must not break the API response.
+  }
+}
+
+function removeChunkedCache_(cache, cacheKey) {
+  try {
+    const partCount = parseInt(cache.get(cacheKey + '_parts') || '0', 10);
+    const keys = [cacheKey, cacheKey + '_parts'];
+    if (isFinite(partCount) && partCount > 0) {
+      for (let i = 0; i < partCount; i++) keys.push(cacheKey + '_part_' + i);
+    }
+    cache.removeAll(keys);
+  } catch (_) {}
 }
 
 function ensureNotedCol_(sheet, headerMap, lastCol) {
