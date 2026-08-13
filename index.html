@@ -572,6 +572,10 @@
       flex-wrap:wrap;
     }
     .map-actions .map-link:active{ transform:scale(.99); }
+    .marker-visited{
+      filter:grayscale(1);
+      opacity:.72;
+    }
 
     .map-done{
       border-color:rgba(226,58,58,.28);
@@ -1198,7 +1202,7 @@
 
   const SETTINGS_KEY = 'PT_GBKK4_SETTINGS_V1';
   const SELECTED_SHEET_KEY = 'PT_GBKK_SELECTED_SHEET_V1';
-  const CACHE_KEY_BASE = 'PT_GBKK_PLACES_CACHE_V1';
+  const CACHE_KEY_BASE = 'PT_GBKK_PLACES_CACHE_V2';
   const MAPSTATE_KEY = 'PT_GBKK4_MAPSTATE_V1';
 
   function $(id){ return document.getElementById(id); }
@@ -1923,9 +1927,13 @@
     window.open(url, '_blank');
   }
 
-  function filteredPlaces(){
+  function filteredPlaces(includeVisited){
     var q = $('q').value.trim().toLowerCase();
     var arr = PLACES.slice();
+
+    if(!includeVisited){
+      arr = arr.filter(function(p){ return !p.visited; });
+    }
 
     if(q){
       arr = arr.filter(function(p){
@@ -2133,7 +2141,6 @@
       }
       return out;
     }
-
     var keys = Object.keys(raw);
     for(var j=0;j<keys.length;j++){
       var key = String(keys[j] || '').trim();
@@ -2793,7 +2800,7 @@
 
   function fitFrameNow(force){
     if(!map) return;
-    var items = filteredPlaces().filter(hasLatLng_);
+    var items = filteredPlaces(true).filter(hasLatLng_);
     var pts = [];
     if(currentLatLng) pts.push([currentLatLng.lat, currentLatLng.lng]);
     items.forEach(function(p){ pts.push([p.lat, p.lng]); });
@@ -2813,7 +2820,8 @@
     placesLayer.clearLayers();
     markerById.clear();
 
-    var items = filteredPlaces().filter(hasLatLng_);
+    var items = filteredPlaces(true).filter(hasLatLng_);
+    var visitedIcon = new L.Icon.Default({ className: 'marker-visited' });
 
     items.forEach(function(p){
       var link = getOpenLink(p);
@@ -2825,17 +2833,20 @@
       var reportHtml =
         '<button class="map-link map-report" type="button" data-id="' + escapeHtml(p.id) + '">Report</button>';
 
-      var doneHtml =
-        '<button class="map-link map-done" type="button" data-id="' + escapeHtml(p.id) + '">ไปแล้ว</button>';
+      var doneHtml = p.visited
+        ? '<button class="map-link disabled" type="button" disabled>ไปแล้ว</button>'
+        : '<button class="map-link map-done" type="button" data-id="' + escapeHtml(p.id) + '">ไปแล้ว</button>';
 
       var lastTextMap = formatLastVisited(p.lastVisitedDate);
 
       var popup =
         '<div style="font-weight:1000;color:#071915">[' + escapeHtml(p.id) + '] ' + escapeHtml(p.name) + '</div>' +
         '<div style="font-size:12px;color:#3b6760;margin-top:4px;">🗓️ ไปล่าสุด: ' + escapeHtml(lastTextMap) + '</div>' +
+        (p.visited ? '<div style="font-size:12px;color:#64748b;margin-top:4px;font-weight:900;">ไปแล้ว</div>' : '') +
         '<div class="map-actions">' + navHtml + reportHtml + doneHtml + '</div>';
 
-      var mk = L.marker([p.lat, p.lng]).addTo(placesLayer).bindPopup(popup);
+      var markerOptions = p.visited ? { icon: visitedIcon } : {};
+      var mk = L.marker([p.lat, p.lng], markerOptions).addTo(placesLayer).bindPopup(popup);
       markerById.set(String(p.id), mk);
     });
 
@@ -3083,7 +3094,8 @@
     var place = PLACES[idx];
     var snapshot = {
       id: id,
-      place: place,
+      place: Object.assign({}, place),
+      previousVisited: !!place.visited,
       idx: idx,
       sheet: (CURRENT_SHEET || ''),
       meta: { total: META.total, visited: META.visited, remaining: META.remaining, rev: META.rev }
@@ -3091,22 +3103,13 @@
 
     PENDING.set(id, snapshot);
 
-    PLACES.splice(idx, 1);
+    place.visited = true;
 
     META.visited = Math.min(META.total, (META.visited || 0) + 1);
     META.remaining = Math.max(0, META.total - META.visited);
 
-    var el = $('list').querySelector('.item[data-id="' + CSS.escape(id) + '"]');
-    if(el && el.parentNode) el.parentNode.removeChild(el);
-
-    renderHeader();
-
-    if(map) removeMarkerById_(id);
-
-    if(META.total > 0 && META.remaining === 0){
-      renderList();
-      if(map) renderMap();
-    }
+    renderList();
+    if(map) renderMap();
 
     return snapshot;
   }
@@ -3122,8 +3125,12 @@
     }
 
     META = { total: snap.meta.total, visited: snap.meta.visited, remaining: snap.meta.remaining, rev: snap.meta.rev };
-    var ins = Math.min(snap.idx, PLACES.length);
-    PLACES.splice(ins, 0, snap.place);
+    var current = PLACES.find(function(x){ return String(x.id) === id; });
+    if(current) current.visited = !!snap.previousVisited;
+    else {
+      var ins = Math.min(snap.idx, PLACES.length);
+      PLACES.splice(ins, 0, snap.place);
+    }
     PENDING.delete(id);
 
     renderList();
@@ -3176,10 +3183,11 @@
       try{
         var res = await apiGetPlaces(sh);
         if(!res || !res.ok || !Array.isArray(res.places)) continue;
-        var exists = res.places.some(function(p){
+        var matched = res.places.find(function(p){
           return p && String(p.id) === id;
         });
-        return !exists;
+        // New payloads keep visited stores; old deployments omitted them entirely.
+        return matched ? !!matched.visited : true;
       }catch(e){}
     }
 
@@ -3187,11 +3195,11 @@
   }
 
   async function confirmAndMarkVisited(place){
-    if(!place) return;
+    if(!place || place.visited) return;
 
     var ok = await openModal({
       title:'ยืนยันว่าไปแล้ว',
-      body:'[' + place.id + '] ' + place.name + '\n\nรายการจะหายทันที และค่อยซิงก์กับระบบ',
+      body:'[' + place.id + '] ' + place.name + '\n\nร้านจะซ่อนจากหน้ารายการ และหมุดบนแผนที่จะเปลี่ยนเป็นสีเทา',
       okText:'ยืนยัน',
       cancelText:'ยกเลิก',
       danger:false
