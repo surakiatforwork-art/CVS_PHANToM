@@ -188,12 +188,38 @@ function api_getPlaces_(sheetParam) {
   return result;
 }
 
+function rowCacheKey_(sheetName, rev, id) {
+  return 'place_row_v1_' + Utilities.base64EncodeWebSafe(JSON.stringify([String(sheetName), Number(rev), String(id)]));
+}
+
+function findRowById_(sheet, sheetName, idColumn, startRow, numRows, rev, id) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = rowCacheKey_(sheetName, rev, id);
+  const cachedRow = parseInt(cache.get(cacheKey) || '0', 10);
+  const lastRow = startRow + numRows - 1;
+
+  if (cachedRow >= startRow && cachedRow <= lastRow) {
+    const cachedId = safeStr_(sheet.getRange(cachedRow, idColumn).getValue());
+    if (cachedId && cachedId.toLowerCase() === String(id).toLowerCase()) return cachedRow;
+  }
+
+  const idRange = sheet.getRange(startRow, idColumn, numRows, 1);
+  const cell = idRange.createTextFinder(id).matchEntireCell(true).matchCase(false).findNext();
+  if (!cell) return 0;
+
+  const rowIndex = cell.getRow();
+  try { cache.put(cacheKey, String(rowIndex), CONFIG.CACHE_TTL_SEC); } catch (_) {}
+  return rowIndex;
+}
+
 function api_markVisited_(idParam, sheetParam) {
   const id = safeStr_(idParam);
   if (!id) return { ok: false, message: 'Missing id' };
 
   const lock = LockService.getScriptLock();
-  lock.tryLock(10000);
+  if (!lock.tryLock(1000)) {
+    return { ok: false, message: 'มีรายการอื่นกำลังบันทึก กรุณาลองอีกครั้ง' };
+  }
 
   try {
     const info = getSheetWithName_(sheetParam);
@@ -214,14 +240,10 @@ function api_markVisited_(idParam, sheetParam) {
 
     const numRows = lastRow - CONFIG.HEADER_ROW;
     const startRow = CONFIG.HEADER_ROW + 1;
+    const oldRev = getRev_(sheetName);
 
-    const idRange = sheet.getRange(startRow, colList, numRows, 1);
-    const finder = idRange.createTextFinder(id).matchEntireCell(true).matchCase(false);
-    const cell = finder.findNext();
-
-    if (!cell) return { ok: false, message: 'ID not found: ' + id };
-
-    const rowIndex = cell.getRow();
+    const rowIndex = findRowById_(sheet, sheetName, colList, startRow, numRows, oldRev, id);
+    if (!rowIndex) return { ok: false, message: 'ID not found: ' + id };
     const visitedCell = sheet.getRange(rowIndex, colVisited);
     const lastDateCell = sheet.getRange(rowIndex, colLastVisitedDate);
 
@@ -230,8 +252,6 @@ function api_markVisited_(idParam, sheetParam) {
 
     const todayYMD = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
     const curLast = toYMD_(lastDateCell.getValue());
-
-    const oldRev = getRev_(sheetName);
 
     if (isVisited && curLast === todayYMD) {
       return { ok: true, id, rev: oldRev, lastVisitedDate: todayYMD, message: 'Already visited' };
@@ -251,7 +271,9 @@ function api_markVisited_(idParam, sheetParam) {
 
 function api_resetVisitedAll_(sheetParam) {
   const lock = LockService.getScriptLock();
-  lock.tryLock(10000);
+  if (!lock.tryLock(1000)) {
+    return { ok: false, message: 'มีรายการอื่นกำลังบันทึก กรุณาลองอีกครั้ง' };
+  }
 
   try {
     const info = getSheetWithName_(sheetParam);
@@ -296,7 +318,9 @@ function api_saveNoted_(idParam, notedParam, sheetParam) {
   const noted = String(notedParam); // frontend sends JSON string
 
   const lock = LockService.getScriptLock();
-  lock.tryLock(10000);
+  if (!lock.tryLock(1000)) {
+    return { ok: false, message: 'มีรายการอื่นกำลังบันทึก กรุณาลองอีกครั้ง' };
+  }
 
   try {
     const info = getSheetWithName_(sheetParam);
@@ -316,20 +340,14 @@ function api_saveNoted_(idParam, notedParam, sheetParam) {
 
     const numRows = lastRow - CONFIG.HEADER_ROW;
     const startRow = CONFIG.HEADER_ROW + 1;
+    const oldRev = getRev_(sheetName);
 
-    const idRange = sheet.getRange(startRow, colList, numRows, 1);
-    const finder = idRange.createTextFinder(id).matchEntireCell(true).matchCase(false);
-    const cell = finder.findNext();
-
-    if (!cell) return { ok: false, message: 'ID not found: ' + id };
-
-    const rowIndex = cell.getRow();
+    const rowIndex = findRowById_(sheet, sheetName, colList, startRow, numRows, oldRev, id);
+    if (!rowIndex) return { ok: false, message: 'ID not found: ' + id };
     const notedCell = sheet.getRange(rowIndex, colNoted);
 
     const current = notedCell.getValue();
     const currentStr = (current === null || current === undefined) ? '' : String(current);
-
-    const oldRev = getRev_(sheetName);
 
     if (currentStr === noted) {
       return { ok: true, id, rev: oldRev, message: 'Noted unchanged' };

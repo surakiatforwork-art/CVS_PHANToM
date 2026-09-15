@@ -661,12 +661,14 @@
 
   const EMBED = new URLSearchParams(location.search).get("embed") === "1";
 
-  const STORE_FORM = "PT_REPORT_FORM_V1";
+  const LEGACY_STORE_FORM = "PT_REPORT_FORM_V1";
+  // Popup and the standalone page have different drafts, so opening a store report never clears the standalone draft.
+  const STORE_FORM = EMBED ? "PT_REPORT_FORM_EMBED_V1" : "PT_REPORT_FORM_DIRECT_V2";
   const STORE_HISTORY = "PT_REPORT_HISTORY_V1";
   const STORE_UI = "PT_REPORT_UI_V1";
   const STORE_SKU_GLOBAL = "PT_REPORT_SKU_GLOBAL_V1";
   const SKU_GLOBAL_PRESET_VERSION = "2026-07-14-order-v2";
-  const STORAGE_CACHE_PREFIX = "PT_GBKK_PLACES_CACHE_V1_";
+  const STORAGE_CACHE_PREFIX = "PT_GBKK_PLACES_CACHE_";
   const MAX_HISTORY_ITEMS = 240;
   const HISTORY_DUPLICATE_WINDOW_MS = 5000;
 
@@ -1722,11 +1724,17 @@
   }
 
   function loadFormState(){
-    const data = loadJSON(STORE_FORM, null);
+    const currentData = loadJSON(STORE_FORM, null);
+    // Preserve any standalone draft that was saved before the storage split.
+    const data = currentData || (!EMBED ? loadJSON(LEGACY_STORE_FORM, null) : null);
     if (!data){
       reportDate.value = "";
       reportDateMode = REPORT_DATE_MODE_AUTO;
       return false;
+    }
+
+    if (!EMBED && !currentData){
+      saveJSON(STORE_FORM, data);
     }
 
     if (!EMBED){

@@ -1297,7 +1297,7 @@
     { id: 'floss_b1g1', label: '⛔สรุปไหมขัดฟัน 1แถม1' },
     { id: 'dentiste_max_45g_b1g1', label: '⛔สรุปเดนทิสเต้ MAX 45G 1แถม1' }
   ];
-  const WRITE_COOLDOWN_MS = 450;
+  const WRITE_COOLDOWN_MS = 150;
 
   const SETTINGS_KEY = 'PT_GBKK4_SETTINGS_V1';
   const SELECTED_SHEET_KEY = 'PT_GBKK_SELECTED_SHEET_V1';
@@ -2213,6 +2213,7 @@
   var REPORT_PREFILL_ACKED = false;
   var REPORT_NOTED_SAVE_WARNED = false;
   var WRITE_QUEUE = Promise.resolve();
+  var PLACES_REVALIDATE_TIMER = null;
 
   function normText(s){
     return String(s || '').replace(/\s+/g,' ').trim().toLowerCase();
@@ -3121,6 +3122,35 @@
     try{ localStorage.removeItem(cacheKey_(sheetName)); }catch(e){}
   }
 
+  function todayYmdLocal_(){
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function persistCurrentPlacesCache_(sheetName){
+    var sh = String(sheetName || CURRENT_SHEET || '');
+    if(!sh || sh !== String(CURRENT_SHEET || '')) return;
+    cacheWrite_({
+      ok: true,
+      schemaVersion: 3,
+      rev: META.rev,
+      total: META.total,
+      visited: META.visited,
+      remaining: META.remaining,
+      places: PLACES
+    }, sh);
+  }
+
+  function schedulePlacesRevalidate_(sheetName){
+    var sh = String(sheetName || '');
+    clearTimeout(PLACES_REVALIDATE_TIMER);
+    PLACES_REVALIDATE_TIMER = setTimeout(function(){
+      if(sh !== String(CURRENT_SHEET || '') || PENDING.size !== 0) return;
+      // Verify against Sheet in the background without delaying the next visit action.
+      loadPlaces({ force:false });
+    }, 2500);
+  }
+
   function buildNotedRecordFromReportPayload_(payload){
     payload = payload || {};
     var src = (payload.noted && typeof payload.noted === 'object') ? payload.noted : payload;
@@ -3343,9 +3373,11 @@
     PENDING.set(id, snapshot);
 
     place.visited = true;
+    place.lastVisitedDate = todayYmdLocal_();
 
     META.visited = Math.min(META.total, (META.visited || 0) + 1);
     META.remaining = Math.max(0, META.total - META.visited);
+    persistCurrentPlacesCache_(snapshot.sheet);
 
     renderList();
     if(map) renderMap();
@@ -3365,12 +3397,13 @@
 
     META = { total: snap.meta.total, visited: snap.meta.visited, remaining: snap.meta.remaining, rev: snap.meta.rev };
     var current = PLACES.find(function(x){ return String(x.id) === id; });
-    if(current) current.visited = !!snap.previousVisited;
+    if(current) Object.assign(current, snap.place);
     else {
       var ins = Math.min(snap.idx, PLACES.length);
       PLACES.splice(ins, 0, snap.place);
     }
     PENDING.delete(id);
+    persistCurrentPlacesCache_(snap.sheet);
 
     renderList();
     if(map) renderMap();
@@ -3387,19 +3420,22 @@
       if(!res || !res.ok) throw new Error(res && res.message ? res.message : 'บันทึกไม่สำเร็จ');
 
       PENDING.delete(id);
+      if(res.rev !== undefined && res.rev !== null) META.rev = res.rev;
+      persistCurrentPlacesCache_(sh);
       showToast('บันทึกแล้ว ✅');
 
       if(sh === String(CURRENT_SHEET || '') && PENDING.size === 0){
-        loadPlaces({ force: false });
+        schedulePlacesRevalidate_(sh);
       }
     }catch(err){
       console.error(err);
       var verified = await verifyVisitedCommit_(id, sh);
       if(verified === true){
         PENDING.delete(id);
+        persistCurrentPlacesCache_(sh);
         showToast('บันทึกแล้ว ✅');
         if(sh === String(CURRENT_SHEET || '') && PENDING.size === 0){
-          loadPlaces({ force:false });
+          schedulePlacesRevalidate_(sh);
         }
         return;
       }
