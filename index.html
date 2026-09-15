@@ -1977,6 +1977,8 @@
   var PLACES = [];
   var PENDING = new Map();
   var VISIT_SYNC_PROMISE = null;
+  // Keep manual refresh single-flight so repeated taps cannot stack API/GPS work.
+  var REFRESH_PROMISE = null;
 
   function renderTopStats(){
     $('titleStats').textContent =
@@ -3179,6 +3181,27 @@
     btn.textContent = VISIT_SYNC_PROMISE ? 'Sync…' : (count ? 'Sync ' + count : 'Sync');
   }
 
+  function updateRefreshButton_(){
+    var btn = $('btnRefresh');
+    if(!btn) return;
+    btn.disabled = !!REFRESH_PROMISE;
+    btn.textContent = REFRESH_PROMISE ? '…' : '⟳';
+    btn.setAttribute('aria-label', REFRESH_PROMISE ? 'กำลังรีเฟรช' : 'รีเฟรช');
+  }
+
+  function refreshPlacesOnce_(){
+    if(REFRESH_PROMISE) return REFRESH_PROMISE;
+    REFRESH_PROMISE = Promise.all([
+      loadPlaces({ force:true }),
+      Promise.resolve(requestGPS())
+    ]).finally(function(){
+      REFRESH_PROMISE = null;
+      updateRefreshButton_();
+    });
+    updateRefreshButton_();
+    return REFRESH_PROMISE;
+  }
+
   function queueVisitForSync_(placeId, sheetName){
     var item = { id:String(placeId || '').trim(), sheetName:String(sheetName || '').trim(), createdAt:Date.now() };
     if(!item.id || !item.sheetName) return false;
@@ -3753,9 +3776,9 @@
   });
 
   $('btnRefresh').onclick = function(){
-    loadPlaces({ force:true });
-    requestGPS();
-    showToast('รีเฟรชแล้ว');
+    if(REFRESH_PROMISE) return;
+    refreshPlacesOnce_();
+    showToast('กำลังรีเฟรช…');
   };
 
   $('btnSync').onclick = function(){ syncVisitOutbox_(true); };
