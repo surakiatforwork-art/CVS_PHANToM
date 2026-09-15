@@ -149,6 +149,21 @@
     .icon-btn:active{ transform:scale(.99); }
     .icon-btn[disabled]{ opacity:.6; cursor:not-allowed; pointer-events:none; }
 
+    .sync-btn{
+      min-height:34px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.25);
+      background:rgba(255,255,255,.14);
+      color:#fff;
+      padding:0 8px;
+      font-weight:1000;
+      font-size:12px;
+      cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .sync-btn:active{ transform:scale(.99); }
+    .sync-btn[disabled]{ opacity:.6; cursor:not-allowed; pointer-events:none; }
+
     .btn-map{
       min-height:40px;
       border-radius:16px;
@@ -1121,6 +1136,7 @@
       <div id="badge" class="badge">
         <span id="badgeText">กำลังโหลด…</span>
         <button id="btnRefresh" class="icon-btn" type="button" aria-label="รีเฟรช">⟳</button>
+        <button id="btnSync" class="sync-btn" type="button" aria-label="Sync รายการที่บันทึกไว้">Sync</button>
       </div>
       <button id="btnResetAll" class="btn-map" type="button">ล้างทั้งหมด</button>
     </div>
@@ -1303,6 +1319,7 @@
   const SELECTED_SHEET_KEY = 'PT_GBKK_SELECTED_SHEET_V1';
   const CACHE_KEY_BASE = 'PT_GBKK_PLACES_CACHE_V3';
   const MAPSTATE_KEY = 'PT_GBKK4_MAPSTATE_V1';
+  const VISIT_OUTBOX_KEY = 'PT_GBKK_VISIT_OUTBOX_V1';
 
   function $(id){ return document.getElementById(id); }
 
@@ -1959,6 +1976,7 @@
   var META = { total:0, visited:0, remaining:0, rev:null };
   var PLACES = [];
   var PENDING = new Map();
+  var VISIT_SYNC_PROMISE = null;
 
   function renderTopStats(){
     $('titleStats').textContent =
@@ -3122,6 +3140,116 @@
     try{ localStorage.removeItem(cacheKey_(sheetName)); }catch(e){}
   }
 
+  function visitOutboxKey_(item){
+    return String(item && item.sheetName || '').trim() + '|' + String(item && item.id || '').trim();
+  }
+
+  function readVisitOutbox_(){
+    try{
+      var raw = localStorage.getItem(VISIT_OUTBOX_KEY);
+      var source = JSON.parse(raw || '[]');
+      if(!Array.isArray(source)) return [];
+      var seen = {};
+      var out = [];
+      source.forEach(function(item){
+        var normalized = {
+          id: String(item && item.id || '').trim(),
+          sheetName: String(item && item.sheetName || '').trim(),
+          createdAt: Number(item && item.createdAt || 0) || Date.now()
+        };
+        var key = visitOutboxKey_(normalized);
+        if(!normalized.id || !normalized.sheetName || seen[key]) return;
+        seen[key] = true;
+        out.push(normalized);
+      });
+      return out;
+    }catch(e){ return []; }
+  }
+
+  function writeVisitOutbox_(items){
+    var normalized = Array.isArray(items) ? items : [];
+    return setLocalStorageRecover_(VISIT_OUTBOX_KEY, JSON.stringify(normalized), [VISIT_OUTBOX_KEY]);
+  }
+
+  function updateSyncButton_(){
+    var btn = $('btnSync');
+    if(!btn) return;
+    var count = readVisitOutbox_().length;
+    btn.disabled = !!VISIT_SYNC_PROMISE;
+    btn.textContent = VISIT_SYNC_PROMISE ? 'Sync…' : (count ? 'Sync ' + count : 'Sync');
+  }
+
+  function queueVisitForSync_(placeId, sheetName){
+    var item = { id:String(placeId || '').trim(), sheetName:String(sheetName || '').trim(), createdAt:Date.now() };
+    if(!item.id || !item.sheetName) return false;
+    var items = readVisitOutbox_();
+    var key = visitOutboxKey_(item);
+    if(!items.some(function(existing){ return visitOutboxKey_(existing) === key; })) items.push(item);
+    var saved = writeVisitOutbox_(items);
+    updateSyncButton_();
+    return saved;
+  }
+
+  function removeVisitFromOutbox_(placeId, sheetName){
+    var key = visitOutboxKey_({ id:placeId, sheetName:sheetName });
+    var items = readVisitOutbox_().filter(function(item){ return visitOutboxKey_(item) !== key; });
+    writeVisitOutbox_(items);
+    updateSyncButton_();
+  }
+
+  function clearVisitOutboxForSheet_(sheetName){
+    var sheet = String(sheetName || '');
+    writeVisitOutbox_(readVisitOutbox_().filter(function(item){ return item.sheetName !== sheet; }));
+    updateSyncButton_();
+  }
+
+  function applyVisitOutboxToResult_(result, sheetName){
+    if(!result || !Array.isArray(result.places)) return result;
+    var pending = new Set(readVisitOutbox_().filter(function(item){ return item.sheetName === String(sheetName || ''); }).map(function(item){ return item.id; }));
+    if(!pending.size) return result;
+    var today = todayYmdLocal_();
+    var places = result.places.map(function(place){
+      return pending.has(String(place.id)) ? Object.assign({}, place, { visited:true, lastVisitedDate:today }) : place;
+    });
+    var visited = places.filter(function(place){ return !!place.visited; }).length;
+    return Object.assign({}, result, { places:places, visited:visited, remaining:Math.max(0, Number(result.total || places.length) - visited) });
+  }
+
+  async function syncVisitOutbox_(manual){
+    if(VISIT_SYNC_PROMISE) return VISIT_SYNC_PROMISE;
+    var queued = readVisitOutbox_();
+    if(!queued.length){
+      if(manual) showToast('ไม่มีรายการรอ Sync');
+      updateSyncButton_();
+      return;
+    }
+
+    VISIT_SYNC_PROMISE = (async function(){
+      var sent = 0;
+      var failed = false;
+      for(var index=0; index<queued.length; index++){
+        var item = queued[index];
+        try{
+          var res = await enqueueSheetWrite_(function(){ return apiMarkVisited(item.id, item.sheetName); }, 0);
+          if(!res || !res.ok) throw new Error(res && res.message ? res.message : 'Sync ไม่สำเร็จ');
+          removeVisitFromOutbox_(item.id, item.sheetName);
+          sent++;
+        }catch(error){
+          failed = true;
+          console.warn('visit sync failed:', error);
+          break;
+        }
+      }
+      if(sent && String(CURRENT_SHEET || '')) schedulePlacesRevalidate_(CURRENT_SHEET);
+      if(manual) showToast(failed ? ('Sync แล้ว ' + sent + ' รายการ เหลือรอส่ง') : ('Sync สำเร็จ ' + sent + ' รายการ'));
+    })().finally(function(){
+      VISIT_SYNC_PROMISE = null;
+      updateSyncButton_();
+    });
+    updateSyncButton_();
+    return VISIT_SYNC_PROMISE;
+  }
+
   function todayYmdLocal_(){
     var d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -3271,7 +3399,7 @@
     var cached = cacheRead_(sheetName);
     if(!cached || !cached.payload) return false;
 
-    var res = cached.payload;
+    var res = applyVisitOutboxToResult_(cached.payload, sheetName);
     if(!res || !res.ok) return false;
 
     META = {
@@ -3327,6 +3455,7 @@
         return;
       }
 
+      res = applyVisitOutboxToResult_(res, sheetAtCall);
       META = {
         total: (res && res.total) ? res.total : 0,
         visited: (res && res.visited) ? res.visited : 0,
@@ -3409,40 +3538,18 @@
     if(map) renderMap();
   }
 
-  async function commitVisited_(placeId, sheetName){
+  function commitVisited_(placeId, sheetName){
     var id = String(placeId);
     var sh = String(sheetName || '');
-
-    try{
-      var res = await enqueueSheetWrite_(function(){
-        return apiMarkVisited(id, sh);
-      });
-      if(!res || !res.ok) throw new Error(res && res.message ? res.message : 'บันทึกไม่สำเร็จ');
-
-      PENDING.delete(id);
-      if(res.rev !== undefined && res.rev !== null) META.rev = res.rev;
-      persistCurrentPlacesCache_(sh);
-      showToast('บันทึกแล้ว ✅');
-
-      if(sh === String(CURRENT_SHEET || '') && PENDING.size === 0){
-        schedulePlacesRevalidate_(sh);
-      }
-    }catch(err){
-      console.error(err);
-      var verified = await verifyVisitedCommit_(id, sh);
-      if(verified === true){
-        PENDING.delete(id);
-        persistCurrentPlacesCache_(sh);
-        showToast('บันทึกแล้ว ✅');
-        if(sh === String(CURRENT_SHEET || '') && PENDING.size === 0){
-          schedulePlacesRevalidate_(sh);
-        }
-        return;
-      }
-
+    if(!queueVisitForSync_(id, sh)){
       rollbackOptimisticVisited_(id);
-      showToast(verified === false ? 'บันทึกไม่สำเร็จ (คืนค่าแล้ว)' : 'เช็กสถานะไม่สำเร็จ (คืนค่าไว้ก่อน)');
+      showToast('บันทึกลงเครื่องไม่สำเร็จ (คืนค่าแล้ว)');
+      return;
     }
+    PENDING.delete(id);
+    persistCurrentPlacesCache_(sh);
+    showToast('บันทึกในเครื่องแล้ว ✓');
+    syncVisitOutbox_(false);
   }
 
   async function verifyVisitedCommit_(placeId, sheetName){
@@ -3589,6 +3696,7 @@
       }
 
       PENDING.clear();
+      clearVisitOutboxForSheet_(sheetAtCall);
       cacheRemove_(sheetAtCall);
 
       showToast('ล้างแล้ว ✅');
@@ -3650,6 +3758,8 @@
     showToast('รีเฟรชแล้ว');
   };
 
+  $('btnSync').onclick = function(){ syncVisitOutbox_(true); };
+
   $('btnResetAll').onclick = onResetAll;
 
   $('gpsPill').onclick = requestGPS;
@@ -3706,10 +3816,12 @@
   }
 
   updateFixedHeights();
+  updateSyncButton_();
   renderSortList_();
   renderRouteList_();
   bootSheets_().then(function(){
     loadPlaces({ force:true });
+    syncVisitOutbox_(false);
   });
   requestGPS();
   syncPageFromHash();
