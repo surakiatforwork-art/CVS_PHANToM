@@ -775,6 +775,7 @@
     { id: "den_whitening_purple_100g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล 100 กรัม (NEW)", family: "DEN" },
     { id: "den_whitening_purple_sachet_10g_new", label: "DEN ไวท์เทนนิ่ง เพอร์เพิล ซ่าเช่ 10 กรัม (NEW)", family: "DEN" },
     { id: "sme_baby_face_acne_5_detoxify_new", label: "SME โฟมเบบี้เฟซ แอคเน่-5 ดีท็อกซิฟาย (NEW)", family: "SME", accounts: ["7-ELEVEN"] },
+    { id: "sme_acne_cleansing_serum_80ml_new", label: "SME คลีนซิ่งแอคเน่ เซรั่ม 80ml (NEW)", family: "SME", accounts: ["7-ELEVEN"] },
 
     { id: "cj_sme_baby_face_foam_2oz", label: "สมูทอี เบบี้ เฟส โฟม 2 ออนซ์", family: "SME", accounts: ["CJ MORE"] },
     { id: "cj_sme_baby_face_foam_1_2oz", label: "สมูทอี เบบี้ เฟส โฟม 1.2 ออนซ์", family: "SME", accounts: ["CJ MORE"] },
@@ -866,7 +867,9 @@
     sme_radiant_glow_30ml_sachet: MONTHLY_FLAG_FOCUS,
     sme_sun_zero_feel_5g_new: MONTHLY_FLAG_FOCUS,
     den_whitening_purple_100g_new: MONTHLY_FLAG_FOCUS,
-    den_whitening_purple_sachet_10g_new: MONTHLY_FLAG_FOCUS
+    den_whitening_purple_sachet_10g_new: MONTHLY_FLAG_FOCUS,
+    sme_baby_face_acne_5_detoxify_new: MONTHLY_FLAG_FOCUS,
+    sme_acne_cleansing_serum_80ml_new: MONTHLY_FLAG_FOCUS
   };
 
   function getLineUrlByAccount(accountValue){
@@ -1409,7 +1412,8 @@
       ? raw.version
       : "";
     const usePresetDefaults = storedVersion !== SKU_GLOBAL_PRESET_VERSION;
-    const source = usePresetDefaults ? DEFAULT_SKU_GLOBAL_FLAGS : storedFlags;
+    // Merge newly shipped defaults without overwriting flags users already configured.
+    const source = Object.assign({}, DEFAULT_SKU_GLOBAL_FLAGS, usePresetDefaults ? {} : storedFlags);
     const out = {};
 
     if (source && typeof source === "object"){
