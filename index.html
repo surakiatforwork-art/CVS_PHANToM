@@ -2633,7 +2633,8 @@
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('rep-open');
 
-    var target = CONFIG.REPORT_PATH + (CONFIG.REPORT_PATH.indexOf('?') >= 0 ? '&' : '?') + 'history=1';
+    // Hash is kept by every static server, unlike query strings that some dev servers redirect away.
+    var target = CONFIG.REPORT_PATH + '#history';
     if(!frame.src || String(frame.src).indexOf(target) === -1){
       frame.src = target;
     }

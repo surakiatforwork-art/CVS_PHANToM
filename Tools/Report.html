@@ -673,7 +673,7 @@
 
   const QUERY = new URLSearchParams(location.search);
   const EMBED = QUERY.get("embed") === "1";
-  const HISTORY_MODE = QUERY.get("history") === "1";
+  const HISTORY_MODE = QUERY.get("history") === "1" || location.hash === "#history";
 
   const LEGACY_STORE_FORM = "PT_REPORT_FORM_V1";
   // Popup and the standalone page have different drafts, so opening a store report never clears the standalone draft.
