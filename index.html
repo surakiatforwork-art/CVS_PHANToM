@@ -2146,25 +2146,16 @@
   }
 
   function getOpenLink(place){
-    var mapsUrl = (place && place.mapsUrl) ? String(place.mapsUrl).trim() : '';
-    var hasLL = hasLatLng_(place);
+    if(!place) return '';
 
-    function genFromLL(){
-      var dest = place.lat + ',' + place.lng;
-      return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(dest) + '&travelmode=driving&dir_action=navigate';
-    }
+    // Do not request immediate guidance; Google Maps should show the route first.
+    var destination = hasLatLng_(place)
+      ? (place.lat + ',' + place.lng)
+      : String(place.account_name || place.name || place.number || '').trim();
+    if(!destination) return '';
 
-    var mode = (SETTINGS && SETTINGS.navPriority) ? SETTINGS.navPriority : 'linkFirst';
-
-    if(mode === 'latLngFirst'){
-      if(hasLL) return genFromLL();
-      if(mapsUrl) return mapsUrl;
-      return '';
-    }
-
-    if(mapsUrl) return mapsUrl;
-    if(hasLL) return genFromLL();
-    return '';
+    return 'https://www.google.com/maps/dir/?api=1&destination=' +
+      encodeURIComponent(destination) + '&travelmode=two-wheeler';
   }
 
   function openMaps(place){
