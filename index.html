@@ -2626,13 +2626,28 @@
   function openReportHistory(){
     var overlay = $('historyOverlay');
     var frame = $('historyFrame');
-    overlay.classList.add('show');
-    overlay.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('rep-open');
-
-    // Hash is kept by every static server, unlike query strings that some dev servers redirect away.
     var target = CONFIG.REPORT_PATH + '#history';
-    if(!frame.src || String(frame.src).indexOf(target) === -1){
+    var refreshId = String(Date.now());
+
+    // Reboot the history-only document so it reads the latest local report history.
+    // This deliberately avoids the slow store API refresh used by the map page.
+    frame.dataset.historyRefreshId = refreshId;
+    frame.onload = function(){
+      if(frame.dataset.historyRefreshId !== refreshId) return;
+      frame.onload = null;
+      overlay.classList.add('show');
+      overlay.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('rep-open');
+    };
+
+    if(frame.dataset.historyLoaded === '1'){
+      try{
+        frame.contentWindow.location.reload();
+      }catch(e){
+        frame.src = target;
+      }
+    }else{
+      frame.dataset.historyLoaded = '1';
       frame.src = target;
     }
   }
