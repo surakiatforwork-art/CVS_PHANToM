@@ -455,6 +455,7 @@
     @keyframes spin{to{transform:rotate(360deg)}}
 
     .map-wrap{
+      position:relative;
       background:var(--card);
       border:1px solid var(--line);
       border-radius:var(--r);
@@ -490,6 +491,23 @@
     }
     .pill:active{ transform:scale(.99); }
     #map{height:clamp(360px, 72dvh, 820px); width:100%}
+    .map-history-fab{
+      position:absolute;
+      right:16px;
+      bottom:16px;
+      z-index:700;
+      min-width:52px;
+      min-height:52px;
+      border:0;
+      border-radius:999px;
+      padding:10px 14px;
+      background:linear-gradient(135deg,#0f8f83,#0b7c73);
+      box-shadow:0 10px 24px rgba(6,78,70,.34);
+      color:#fff;
+      font-weight:1000;
+      cursor:pointer;
+    }
+    .map-history-fab:active{ transform:scale(.96); }
 
     body.map-open main{
       height: calc(100vh - var(--hdrH) - var(--tabsH));
@@ -853,7 +871,8 @@
       font-weight:1000;
       cursor:pointer;
     }
-    #repFrame{
+    #repFrame,
+    #historyFrame{
       width:100%;
       height: calc(100% - var(--repBarH));
       border:0;
@@ -1071,6 +1090,7 @@
         text-overflow:ellipsis;
       }
       #map{ height:clamp(320px, 61dvh, 680px); min-height:0; }
+      .map-history-fab{ right:12px; bottom:12px; min-height:48px; padding:9px 12px; }
       .bottom-tabs .row{ width:94%; }
     }
 
@@ -1223,6 +1243,7 @@
         </div>
       </div>
       <div id="map"></div>
+      <button id="mapHistoryFab" class="map-history-fab" type="button" aria-label="เปิดประวัติ Report">🧾 ประวัติ</button>
     </section>
   </section>
 </main>
@@ -1255,6 +1276,17 @@
       <button id="repClose" class="rep-close" type="button">ปิด</button>
     </div>
     <iframe id="repFrame" title="Report Popup" src=""></iframe>
+  </div>
+</div>
+
+<div id="historyOverlay" class="rep-overlay" aria-hidden="true">
+  <div class="rep-modal" role="dialog" aria-modal="true" aria-label="ประวัติ Report">
+    <div class="rep-bar">
+      <div class="rep-title">🧾 ประวัติ Report</div>
+      <div class="rep-sub">คัดลอก ลบ และเลือกรายการได้จากหน้าต่างนี้</div>
+      <button id="historyClose" class="rep-close" type="button">ปิด</button>
+    </div>
+    <iframe id="historyFrame" title="Report History" src=""></iframe>
   </div>
 </div>
 
@@ -2594,6 +2626,31 @@
     if(ev.target && ev.target.id === 'repOverlay') closeReport();
   });
 
+  function openReportHistory(){
+    var overlay = $('historyOverlay');
+    var frame = $('historyFrame');
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('rep-open');
+
+    var target = CONFIG.REPORT_PATH + (CONFIG.REPORT_PATH.indexOf('?') >= 0 ? '&' : '?') + 'history=1';
+    if(!frame.src || String(frame.src).indexOf(target) === -1){
+      frame.src = target;
+    }
+  }
+
+  function closeReportHistory(){
+    $('historyOverlay').classList.remove('show');
+    $('historyOverlay').setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('rep-open');
+  }
+
+  $('mapHistoryFab').addEventListener('click', openReportHistory);
+  $('historyClose').addEventListener('click', closeReportHistory);
+  $('historyOverlay').addEventListener('click', function(ev){
+    if(ev.target && ev.target.id === 'historyOverlay') closeReportHistory();
+  });
+
   function getReportDoc(){
     var frame = $('repFrame');
     try{ return frame.contentDocument || (frame.contentWindow && frame.contentWindow.document) || null; }
@@ -3806,6 +3863,7 @@
       if(sortDropIsOpen_()){ closeSortDrop_(); return; }
       if(routeDropIsOpen_()){ closeRouteDrop_(); return; }
       if(document.body.classList.contains('set-open')){ closeSettings(); return; }
+      if($('historyOverlay').classList.contains('show')){ closeReportHistory(); return; }
       if(document.body.classList.contains('rep-open')){ closeReport(); return; }
       if(sidebarIsOpen()){ closeSidebar(); return; }
     }
