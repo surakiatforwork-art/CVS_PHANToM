@@ -43,6 +43,8 @@
       border-radius:0;
       box-shadow:none;
     }
+    #btnHistorySummary{ display:none; }
+    body.history-only #btnHistorySummary{ display:inline-flex; }
     header{
       display:flex;
       align-items:flex-start;
@@ -625,6 +627,7 @@
         </div>
 
         <div class="row" style="gap:8px">
+          <button class="btn primary" id="btnHistorySummary">🧾 สรุปยอด (จากที่ติ๊ก)</button>
           <button class="btn soft" id="btnSelectAll">เลือกทั้งหมด</button>
           <button class="btn" id="btnToggleAll">ดูทั้งหมด</button>
           <button class="btn danger" id="btnClearAll">ล้างประวัติทั้งหมด</button>
@@ -998,6 +1001,7 @@
   const histList = $("histList");
   const histCount = $("histCount");
   const histHint = $("histHint");
+  const btnHistorySummary = $("btnHistorySummary");
   const btnSelectAll = $("btnSelectAll");
   const btnToggleAll = $("btnToggleAll");
   const btnClearAll = $("btnClearAll");
@@ -2249,6 +2253,7 @@
   btnCopy.addEventListener("click", () => doCopy({ openLine: true }));
   btnCopyOnly.addEventListener("click", () => doCopy({ openLine: false }));
   btnSummary.addEventListener("click", doSummary);
+  if (btnHistorySummary) btnHistorySummary.addEventListener("click", doSummary);
 
   if (btnToggleAll) btnToggleAll.addEventListener("click", () => {
     showAllHistory = !showAllHistory;
