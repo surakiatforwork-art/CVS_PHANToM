@@ -856,6 +856,78 @@
   };
 
   const SKU_ITEM_MAP = new Map(SKU_ITEMS.map((item) => [item.id, item]));
+  // The check form retains the master-list order. 7-ELEVEN uses this separate order only in copied reports.
+  const REPORT_COPY_LAYOUTS = {
+    "7-ELEVEN": [
+      {
+        heading: "📍สินค้าโฟม SMOOTHE",
+        ids: [
+          "sme_foam_baby_face_2oz",
+          "sme_foam_green_baby_face_1_2oz",
+          "sme_baby_face_gel_1_5oz",
+          "sme_white_foam_1oz",
+          "sme_green_foam_0_5oz",
+          "sme_cleansing_water_80ml",
+          "sme_white_baby_face_spot_clear_40ml",
+          "sme_acne_cleansing_serum_80ml_new",
+          "sme_baby_face_acne_5_detoxify_new",
+          "sme_green_foam_new"
+        ]
+      },
+      {
+        heading: "📍สินค้าครีม SMOOTHE",
+        ids: [
+          "sme_acne_gel_5g_sachet",
+          "sme_acne_scar_5g_sachet",
+          "sme_acne_sun_5g_sachet",
+          "sme_white_cream_5g_sachet",
+          "sme_gold_cream_5g_sachet",
+          "sme_gluta_b3_5g_sachet",
+          "sme_hya_filler_serum_5g_sachet",
+          "sme_radiant_glow_30ml_sachet",
+          "sme_sun_zero_feel_5g_new",
+          "sme_green_cream_10g",
+          "sme_plus_white",
+          "sme_acne_gel_7g",
+          "sme_new_skin_liquid_plaster"
+        ]
+      },
+      {
+        heading: "📍สินค้ายาสีฟัน DENTISTE",
+        ids: [
+          "den_tube_50g",
+          "den_tube_100g",
+          "den_extra_strong_mint_100g",
+          "den_premium_natural_white_50g",
+          "den_whitening_purple_sachet_10g_new",
+          "den_whitening_purple_100g_new",
+          "den_sensitive_100g",
+          "den_premium_care_50g",
+          "den_quality_max_45g",
+          "den_tube_set_90x90g",
+          "den_tube_set_160g_p3",
+          "den_valentine_100g"
+        ]
+      },
+      {
+        heading: "📍สินค้าแปรงสีฟัน DENTISTE",
+        ids: [
+          "den_italy_3_action_80",
+          "den_advanced_care_new",
+          "den_travel_set",
+          "den_goodnight_pastel",
+          "den_brush_pack_3",
+          "den_mouth_spray",
+          "den_floss",
+          "den_floss_pick_40",
+          "den_oral_care_set",
+          "den_sukiri_candy",
+          "den_proskin_6_capsules",
+          "den_proskin_12_capsules"
+        ]
+      }
+    ]
+  };
   const DEFAULT_SKU_GLOBAL_FLAGS = {
     sme_foam_green_baby_face_1_2oz: MONTHLY_FLAG_FOCUS,
     sme_white_foam_1oz: MONTHLY_FLAG_FOCUS,
@@ -1533,6 +1605,30 @@
     return `${prefix}${item.label} : ${value}`;
   }
 
+  function getReportCopySections(){
+    const accountKey = safeText(account.value).trim().toUpperCase();
+    const layout = REPORT_COPY_LAYOUTS[accountKey];
+    if (!layout) return null;
+
+    const activeItems = getActiveSkuItems();
+    const activeById = new Map(activeItems.map((item) => [item.id, item]));
+    const usedIds = new Set();
+    const sections = [];
+
+    for (const section of layout){
+      const items = section.ids
+        .map((id) => activeById.get(id))
+        .filter(Boolean);
+      for (const item of items) usedIds.add(item.id);
+      if (items.length) sections.push({ heading: section.heading, items });
+    }
+
+    // Keep a future SKU visible in copied reports until it is placed in the account layout.
+    const remaining = activeItems.filter((item) => !usedIds.has(item.id));
+    if (remaining.length) sections.push({ heading: "📍สินค้าอื่นๆ", items: remaining });
+    return sections;
+  }
+
   function collectSummarySelectionsFromDom(){
     const out = {};
 
@@ -1603,8 +1699,15 @@
       ""
     ];
 
-    for (const item of getActiveSkuItems()){
-      lines.push(buildSkuLine(item));
+    const copySections = getReportCopySections();
+    if (copySections){
+      for (const section of copySections){
+        lines.push(section.heading);
+        for (const item of section.items) lines.push(buildSkuLine(item));
+        lines.push("");
+      }
+    } else {
+      for (const item of getActiveSkuItems()) lines.push(buildSkuLine(item));
     }
 
     lines.push("");
