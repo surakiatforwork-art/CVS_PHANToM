@@ -165,6 +165,17 @@
       border-color:#86efac;
       color:#065f46;
     }
+    .reportActions{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      gap:10px;
+    }
+    .reportActions .btn{
+      min-width:0;
+      padding:10px 8px;
+      font-size:clamp(12px, 3.4vw, 15px);
+      white-space:normal;
+    }
     .btn.danger{
       background:rgba(239,68,68,.12);
       border-color:rgba(239,68,68,.35);
@@ -652,7 +663,7 @@
     </div>
 
     <div class="stickyBar" id="stickyBar">
-      <div class="grid3">
+      <div class="reportActions">
         <button class="btn copy-line" id="btnCopy">COPY to LINE</button>
         <button class="btn copy-only" id="btnCopyOnly">COPY</button>
         <button class="btn save-local" id="btnSave">SAVE</button>
