@@ -1355,6 +1355,7 @@
 
   const SETTINGS_KEY = 'PT_GBKK4_SETTINGS_V1';
   const SELECTED_SHEET_KEY = 'PT_GBKK_SELECTED_SHEET_V1';
+  const ROUTE_FILTER_SETTINGS_KEY = 'PT_GBKK_ROUTE_FILTER_V1';
   const CACHE_KEY_BASE = 'PT_GBKK_PLACES_CACHE_V3';
   const MAPSTATE_KEY = 'PT_GBKK4_MAPSTATE_V1';
   const VISIT_OUTBOX_KEY = 'PT_GBKK_VISIT_OUTBOX_V1';
@@ -1690,6 +1691,7 @@
 
   var SHEETS = [];
   var CURRENT_SHEET = '';
+  var ROUTE_FILTER_SHEET = '';
 
   function sheetKeyPart_(s){
     return String(s || '').replace(/[^\wก-๙]/g, '_');
@@ -1904,6 +1906,28 @@
     route = String(route || '').trim();
     return route ? ('Route ' + route) : 'ทุก Route';
   }
+  function loadRouteFilterSettings_(){
+    try{
+      var raw = localStorage.getItem(ROUTE_FILTER_SETTINGS_KEY);
+      var obj = JSON.parse(raw || '{}');
+      return obj && typeof obj === 'object' ? obj : {};
+    }catch(e){
+      return {};
+    }
+  }
+  function savedRouteFilter_(sheetName){
+    var sheet = String(sheetName || '').trim();
+    if(!sheet) return '';
+    var settings = loadRouteFilterSettings_();
+    return typeof settings[sheet] === 'string' ? settings[sheet] : '';
+  }
+  function saveRouteFilter_(route){
+    var sheet = String(CURRENT_SHEET || '').trim();
+    if(!sheet) return;
+    var settings = loadRouteFilterSettings_();
+    settings[sheet] = String(route || '');
+    try{ localStorage.setItem(ROUTE_FILTER_SETTINGS_KEY, JSON.stringify(settings)); }catch(e){}
+  }
   function renderRouteList_(){
     var select = $('routeFilter');
     if(!select) return;
@@ -1930,6 +1954,7 @@
       return String(option.value || '') === route;
     });
     select.value = exists ? route : '';
+    saveRouteFilter_(select.value);
     $('routeLabel').textContent = routeLabelFor_(select.value);
     renderRouteList_();
     if(fire) select.dispatchEvent(new Event('change', { bubbles:true }));
@@ -2223,6 +2248,10 @@
     var select = $('routeFilter');
     if(!select) return;
     var current = String(select.value || '');
+    var activeSheet = String(CURRENT_SHEET || '').trim();
+    var requestedRoute = (ROUTE_FILTER_SHEET === activeSheet)
+      ? current
+      : savedRouteFilter_(activeSheet);
     var routes = [];
     var seen = {};
     PLACES.forEach(function(p){
@@ -2233,8 +2262,9 @@
     select.innerHTML = '<option value="">ทุก Route</option>' + routes.map(function(route){
       return '<option value="' + escapeHtml(route) + '">Route ' + escapeHtml(route) + '</option>';
     }).join('');
-    if(routes.indexOf(current) !== -1) select.value = current;
+    if(routes.indexOf(requestedRoute) !== -1) select.value = requestedRoute;
     else select.value = '';
+    ROUTE_FILTER_SHEET = activeSheet;
     renderRouteList_();
   }
 
