@@ -150,6 +150,21 @@
       border-color:rgba(16,185,129,.30);
       color:#064e3b;
     }
+    .btn.copy-line{
+      background:#047857;
+      border-color:#065f46;
+      color:#fff;
+    }
+    .btn.copy-only{
+      background:#e5e7eb;
+      border-color:#d1d5db;
+      color:#374151;
+    }
+    .btn.save-local{
+      background:#d1fae5;
+      border-color:#86efac;
+      color:#065f46;
+    }
     .btn.danger{
       background:rgba(239,68,68,.12);
       border-color:rgba(239,68,68,.35);
@@ -610,11 +625,9 @@
       <div class="previewBox">
         <div class="previewHeader">
           <div class="previewTitle">Output Preview</div>
-          <button class="btn soft" id="btnCopyOnly" style="min-height:40px; padding:9px 10px; font-size:13px;">📋 COPY (ไม่เปิด LINE)</button>
         </div>
         <pre id="preview"></pre>
       </div>
-      <div class="mini">ปุ่มด้านบนนี้จะ COPY อย่างเดียว (กันกรณีไม่อยากเปิด LINE)</div>
     </div>
 
     <div class="card" id="historyCard">
@@ -639,10 +652,12 @@
     </div>
 
     <div class="stickyBar" id="stickyBar">
-      <div class="grid2">
-        <button class="btn primary" id="btnCopy">✅ COPY + เปิด LINE กลุ่ม</button>
-        <button class="btn soft" id="btnSummary">🧾 สรุปยอด (จากที่ติ๊ก) + เปิด LINE สรุป</button>
+      <div class="grid3">
+        <button class="btn copy-line" id="btnCopy">COPY to LINE</button>
+        <button class="btn copy-only" id="btnCopyOnly">COPY</button>
+        <button class="btn save-local" id="btnSave">SAVE</button>
       </div>
+      <button class="btn soft" id="btnSummary" style="width:100%; margin-top:10px">🧾 สรุปยอด (จากที่ติ๊ก) + เปิด LINE สรุป</button>
       <div class="muted">
         • รูปแบบสคริป: วันที่(พ.ศ.2หลัก) + CVS: 20 + รายละเอียดร้าน + SKU แบบ ✅/⭐/❌<br>
         • สรุปยอด: “สรุปงาน วันที่ dd/mm/yyyy” + “CVS 20” + ลิสต์ 1..n
@@ -991,6 +1006,7 @@
   const preview = $("preview");
   const btnCopy = $("btnCopy");
   const btnCopyOnly = $("btnCopyOnly");
+  const btnSave = $("btnSave");
   const btnSummary = $("btnSummary");
   const btnResetForm = $("btnResetForm");
 
@@ -2135,6 +2151,19 @@
     }
   }
 
+  function doSave(){
+    updatePreview();
+    const text = preview.textContent || buildReportText();
+    const miss = validateForCopy();
+
+    addHistoryEntry(text);
+    saveFormState();
+    setStatus(miss.length ? "wait" : "ok", miss.length
+      ? `บันทึกในเครื่องแล้ว (ยังไม่ได้กรอก ${miss.join(", ")})`
+      : "บันทึกสคริปต์ไว้ในเครื่องแล้ว");
+    showToast("บันทึกในเครื่องแล้ว ✅");
+  }
+
   function buildSummaryText(){
     const d = parseISODate(reportDate.value) || new Date();
     const dateLine = formatSummaryDateGregorian4(d);
@@ -2252,6 +2281,7 @@
 
   btnCopy.addEventListener("click", () => doCopy({ openLine: true }));
   btnCopyOnly.addEventListener("click", () => doCopy({ openLine: false }));
+  btnSave.addEventListener("click", doSave);
   btnSummary.addEventListener("click", doSummary);
   if (btnHistorySummary) btnHistorySummary.addEventListener("click", doSummary);
 
