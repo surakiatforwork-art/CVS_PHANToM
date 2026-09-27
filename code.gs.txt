@@ -159,14 +159,19 @@ function api_saveReportConfigBulk_(items) {
   if (!lock.tryLock(5000)) return { ok: false, message: 'มีรายการอื่นกำลังบันทึก กรุณาลองอีกครั้ง' };
   try {
     const sheet = getReportConfigSheet_();
+    const accounts = {};
+    items.forEach(function(item) { accounts[safeStr_(item.account)] = true; });
     const rows = items.map(function(item) {
       const account = safeStr_(item.account), kind = safeStr_(item.kind), id = safeStr_(item.id);
       if (!account || !kind || !id) throw new Error('Invalid config item');
       return [account, kind, id, Number(item.sort) || 0, item.active === false ? 0 : 1, JSON.stringify(item.data || {}), new Date().toISOString()];
     });
     const lastRow = sheet.getLastRow();
+    const existing = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, CONFIG.REPORT_CONFIG_HEADERS.length).getValues() : [];
+    const kept = existing.filter(function(row) { return !accounts[safeStr_(row[0])]; });
+    const allRows = kept.concat(rows);
     if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, CONFIG.REPORT_CONFIG_HEADERS.length).clearContent();
-    sheet.getRange(2, 1, rows.length, CONFIG.REPORT_CONFIG_HEADERS.length).setValues(rows);
+    sheet.getRange(2, 1, allRows.length, CONFIG.REPORT_CONFIG_HEADERS.length).setValues(allRows);
     return { ok: true, count: rows.length, version: bumpRev_(CONFIG.REPORT_CONFIG_SHEET) };
   } finally { lock.releaseLock(); }
 }
