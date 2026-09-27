@@ -1759,7 +1759,7 @@
     const selected = normalizePromotionMediaSelections(collectPromotionMediaSelectionsFromDom());
     const lines = ["🪧สื่อโปรโมชั่น"];
     for (const item of PROMOTION_MEDIA_ITEMS){
-      if (selected[item.id]) lines.push(`${item.label} : ✅`);
+      lines.push(`${item.label} : ${selected[item.id] ? "✅" : ""}`);
     }
     return lines.join("\n");
   }
