@@ -654,7 +654,7 @@
           <button class="btn primary" id="btnHistorySummary">🧾 สรุปยอด (จากที่ติ๊ก)</button>
           <button class="btn soft" id="btnSelectAll">เลือกทั้งหมด</button>
           <button class="btn" id="btnToggleAll">ดูทั้งหมด</button>
-          <button class="btn danger" id="btnClearAll">ล้างประวัติทั้งหมด</button>
+          <button class="btn danger" id="btnClearAll">ล้างประวัติ</button>
         </div>
       </div>
 
@@ -1981,9 +1981,11 @@
     renderHistory();
   }
 
-  function clearAllHistory(){
-    history = [];
-    selectedIds.clear();
+  function clearHistoryItems(items){
+    const ids = new Set((items || []).map((item) => item.id));
+    if (!ids.size) return;
+    history = history.filter((item) => !ids.has(item.id));
+    ids.forEach((id) => selectedIds.delete(id));
     saveHistory();
     saveUIState();
     renderHistory();
@@ -2327,14 +2329,16 @@
   });
 
   if (btnClearAll) btnClearAll.addEventListener("click", () => {
-    if (!history.length){
-      showToast("ไม่มีประวัติให้ล้าง");
+    const list = getVisibleHistoryItems();
+    if (!list.length){
+      showToast("ไม่มีประวัติในมุมมองนี้ให้ล้าง");
       return;
     }
+    const scope = showAllHistory ? "ทั้งหมด" : "วันนี้";
     openConfirm(
-      "ยืนยันล้างประวัติทั้งหมด",
-      `ต้องการล้างประวัติทั้งหมดใช่ไหม?\n(จะลบ ${history.length} รายการ)`,
-      () => clearAllHistory()
+      `ยืนยันล้างประวัติ${scope}`,
+      `ต้องการล้างประวัติ${scope}ใช่ไหม?\n(จะลบ ${list.length} รายการ)`,
+      () => clearHistoryItems(list)
     );
   });
 
