@@ -92,8 +92,9 @@ function getReportConfigSheet_() {
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.REPORT_CONFIG_SHEET);
     sheet.getRange(1, 1, 1, CONFIG.REPORT_CONFIG_HEADERS.length).setValues([CONFIG.REPORT_CONFIG_HEADERS]);
-    sheet.hideSheet();
   }
+  // Keep the config table visible so the owner can audit it directly in Google Sheets.
+  if (sheet.isSheetHidden && sheet.isSheetHidden()) sheet.showSheet();
   return sheet;
 }
 
