@@ -19,10 +19,23 @@
 (() => {
   const API_URL = 'https://script.google.com/macros/s/AKfycbw91N5J4z1Jjn0rZz8qnn-ZFmP6bYJ2IZaKrOXrDaTj3aJoAvGJCVJBy982T_pXilNS/exec';
   const $ = id => document.getElementById(id); let kind='sku', items=[], editing=null;
+  const BUILTIN = {
+    summary: [
+      ['brush_advanced_b1g1','⛔สรุปแปรงแอดวานซ์ 1แถม1'], ['brush_pack3_b1g1','⛔สรุปแปรงแพ็ค3 1แถม1'],
+      ['acne_scar_5g_b1g1','⛔สรุปแอคเน่สการ์5G 1แถม1'], ['acne_gel_5g_b1g1','⛔สรุปเจลแต้มสิว5G 1แถม1'],
+      ['travel_brush_set_b1g1','⛔สรุปแปรงชุดเดินทาง 1แถม1'], ['floss_b1g1','⛔สรุปไหมขัดฟัน 1แถม1'], ['dentiste_max_45g_b1g1','⛔สรุปเดนทิสเต้ MAX 45G 1แถม1']
+    ],
+    promotion: [
+      ['sme_spot_clear_foam_40ml','⭐SME สปอตเคลียร์โฟม40มล.'], ['sme_baby_face_gel_1_5oz','⭐SME เบบี้เฟชเจลล้างหน้า 1.5oz'],
+      ['den_advanced_care_toothbrush','⭐DEN แปรงสีฟันแอดวานซ์แคร์'], ['sme_sun_zero_feel_sachet','⭐SME สมูทอี ซัน ซีโร่ ฟีล(ซอง)'],
+      ['sme_acne_sun_5g_sachet','⭐ SME สมูทอีแอคเน่ซัน 5g.(ซอง )'], ['sme_white_cream_5g_sachet','⭐SME ไวท์ครีม 5G. (ซอง)'], ['sme_gold_cream_5g_sachet','⭐SME โกลครีม 5G. (ซอง)']
+    ]
+  };
   function status(text, error=false){const el=$('status');el.textContent=text;el.className='status'+(error?' error':'');}
   function jsonp(action, params={}){return new Promise((resolve,reject)=>{const cb='__rc_'+Date.now()+'_'+Math.random().toString(36).slice(2);const url=new URL(API_URL);url.searchParams.set('action',action);url.searchParams.set('callback',cb);Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,String(v)));const script=document.createElement('script');const timer=setTimeout(()=>done(new Error('หมดเวลารอ API')),30000);function done(err,val){clearTimeout(timer);delete window[cb];script.remove();err?reject(err):resolve(val)}window[cb]=v=>done(null,v);script.onerror=()=>done(new Error('เชื่อมต่อ API ไม่สำเร็จ'));script.src=url;document.head.appendChild(script);});}
   function account(){return $('account').value} function visible(){return items.filter(x=>x.kind===kind).sort((a,b)=>a.sort-b.sort)} function labelForKind(){return kind==='sku'?'สินค้า':kind==='summary'?'หัวข้อสรุปท้ายงาน':'สื่อโปรโมชั่น'}
-  async function load(){status('กำลังโหลด...');try{const r=await jsonp('getReportConfig',{account:account()});if(!r.ok)throw Error(r.message);items=r.items||[];render();status(`พร้อมใช้งาน ${items.length} รายการ config`)}catch(e){items=[];render();status(e.message,true)}}
+  function includeBuiltin(){for(const [type,rows] of Object.entries(BUILTIN))for(const [id,label] of rows)if(!items.some(x=>x.kind===type&&x.id===id))items.push({account:account(),kind:type,id,sort:rows.findIndex(x=>x[0]===id)+1,active:true,data:{label},builtin:true})}
+  async function load(){status('กำลังโหลด...');try{const r=await jsonp('getReportConfig',{account:account()});if(!r.ok)throw Error(r.message);items=r.items||[];includeBuiltin();render();status(`พร้อมใช้งาน ${items.length} รายการ config`)}catch(e){items=[];includeBuiltin();render();status(e.message,true)}}
   function render(){ $('listTitle').textContent=labelForKind();const list=$('list');list.innerHTML='';const rows=visible();if(!rows.length){list.innerHTML='<p class="hint">ยังไม่มีรายการ กด “เพิ่ม” เพื่อสร้างรายการแรก</p>';return}rows.forEach((item,index)=>{const d=item.data||{},el=document.createElement('div');const skuMeta=kind==='sku'?` · ${escape(d.family||'SME')} · ${escape(d.category||'ยังไม่กำหนดหมวด')} · ${d.defaultFlag==='focus'?'⭐':d.defaultFlag==='skip'?'❌':'ว่าง'}`:'';const disabledMeta=item.active?'':' · ปิดใช้งาน';el.className='item';el.innerHTML=`<div class="itemTitle">${escape(d.label||item.id)}</div><div class="meta">ลำดับ ${item.sort}${skuMeta}${disabledMeta}</div><div class="actions"><button class="soft" data-edit="${item.id}">แก้ไข</button><button class="soft" data-move="-1" data-id="${item.id}" ${index?'':'disabled'}>ขึ้น</button><button class="soft" data-move="1" data-id="${item.id}" ${index<rows.length-1?'':'disabled'}>ลง</button></div>`;list.appendChild(el)});}
   function escape(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
   function open(item){editing=item||null;const d=item?.data||{};$('formTitle').textContent=item?'แก้ไขรายการ':'เพิ่ม '+labelForKind();$('label').value=d.label||'';$('family').value=d.family||'SME';$('category').value=d.category||'';$('defaultFlag').value=d.defaultFlag||'';$('sort').value=item?.sort??((visible().at(-1)?.sort||0)+10);$('active').value=item?.active===false?'false':'true';$('remove').style.display=item?'block':'none';['familyWrap','categoryWrap','flagWrap'].forEach(id=>$(id).style.display=kind==='sku'?'block':'none');$('modal').classList.add('open')}
