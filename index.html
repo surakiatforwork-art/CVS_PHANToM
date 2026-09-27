@@ -3141,7 +3141,7 @@
   }
 
   function reportNotedDefaults_(){
-    return { locationArea:'', issue:'', note:'', skuChecks:{}, summarySelections:{} };
+    return { locationArea:'', issue:'', note:'', skuChecks:{}, summarySelections:{}, promotionMediaSelections:{} };
   }
 
   function normalizeSkuChecksMap_(raw){
@@ -3185,6 +3185,10 @@
     }
 
     return out;
+  }
+
+  function normalizePromotionMediaSelectionsMap_(raw){
+    return normalizeSkuChecksMap_(raw);
   }
 
   function sameSummarySelections_(a, b){
@@ -3247,6 +3251,7 @@
     if(obj.note !== undefined && obj.note !== null) out.note = String(obj.note);
     out.skuChecks = normalizeSkuChecksMap_(obj.skuChecks || obj.checkedSkus || {});
     out.summarySelections = normalizeSummarySelectionsMap_(obj.summarySelections || obj.summaryChecks || obj.summaryTopics || {});
+    out.promotionMediaSelections = normalizePromotionMediaSelectionsMap_(obj.promotionMediaSelections || obj.promotionMedia || {});
 
     return out;
   }
@@ -3260,12 +3265,13 @@
     var session = getReportSession_();
 
     var notedPayload = {
-      v: 3,
+      v: 4,
       locationArea: String(noted.locationArea || ''),
       issue: String(noted.issue || ''),
       note: String(noted.note || ''),
       skuChecks: normalizeSkuChecksMap_(noted.skuChecks || {}),
-      summarySelections: normalizeSummarySelectionsMap_(noted.summarySelections || {})
+      summarySelections: normalizeSummarySelectionsMap_(noted.summarySelections || {}),
+      promotionMediaSelections: normalizePromotionMediaSelectionsMap_(noted.promotionMediaSelections || {})
     };
 
     return {
@@ -3280,6 +3286,7 @@
       note: notedPayload.note,
       skuChecks: notedPayload.skuChecks,
       summarySelections: notedPayload.summarySelections,
+      promotionMediaSelections: notedPayload.promotionMediaSelections,
       noted: notedPayload
     };
   }
@@ -4147,14 +4154,16 @@
     if(src && src.note !== undefined && src.note !== null) out.note = String(src.note);
     out.skuChecks = normalizeSkuChecksMap_(src ? (src.skuChecks || src.checkedSkus || {}) : {});
     out.summarySelections = normalizeSummarySelectionsMap_(src ? (src.summarySelections || src.summaryChecks || src.summaryTopics || {}) : {});
+    out.promotionMediaSelections = normalizePromotionMediaSelectionsMap_(src ? (src.promotionMediaSelections || src.promotionMedia || {}) : {});
 
     var rec = {
-      v: 3,
+      v: 4,
       locationArea: out.locationArea,
       issue: out.issue,
       note: out.note,
       skuChecks: out.skuChecks,
-      summarySelections: out.summarySelections
+      summarySelections: out.summarySelections,
+      promotionMediaSelections: out.promotionMediaSelections
     };
 
     if(payload.reportDateISO){

@@ -618,6 +618,10 @@
       <div class="summaryTopicHint">ติ๊กเฉพาะร้านที่ต้องการให้ไปอยู่ในสรุปงานท้ายวันแบบแยกหมวด</div>
       <div id="summaryTopicList" class="summaryTopicList"></div>
 
+      <div class="label">🪧สื่อโปรโมชั่น</div>
+      <div class="summaryTopicHint">ติ๊กเฉพาะสื่อโปรโมชั่นที่ติดตั้งในสาขานี้</div>
+      <div id="promotionMediaList" class="summaryTopicList"></div>
+
       <div class="grid2">
         <div>
           <div class="label">⛔ ปัญหาที่พบ</div>
@@ -625,8 +629,8 @@
         </div>
         <div>
           <div class="label">หมายเหตุ</div>
-          <textarea id="note" class="field" placeholder="ใช้ช่องนี้สำหรับสื่อโปรโมชั่น ป้ายสินค้าใหม่ ป้ายขายดี Sticker ลิซ่า และชั้นวางสินค้า"></textarea>
-          <div class="mini">ตัวอย่าง: &#10;🪧สื่อโปรโมชั่น ...&#10;🪧ป้ายสินค้าใหม่ ...&#10;⭐ Sticker ลิซ่า : ✔️&#10;🗄️ชั้นวางสินค้า ...</div>
+          <textarea id="note" class="field" placeholder="ใช้ช่องนี้สำหรับป้ายสินค้าใหม่ ป้ายขายดี Sticker ลิซ่า และชั้นวางสินค้า"></textarea>
+          <div class="mini">ตัวอย่าง: &#10;🪧ป้ายสินค้าใหม่ ...&#10;⭐ Sticker ลิซ่า : ✔️&#10;🗄️ชั้นวางสินค้า ...</div>
         </div>
       </div>
     </div>
@@ -729,11 +733,6 @@
     "- สาขาติดป้ายสื่อโปรโมชั่นเรียบร้อย"
   ].join("\n");
   const DEFAULT_NOTE_TEMPLATE = [
-    "🪧สื่อโปรโมชั่น",
-    "⭐SME โฟมขาวไวท์ 1oz : ",
-    "⭐SME โฟโฟมเขียวเบบี้เฟช.5oz : ",
-    "⭐SME ครีมพลัสไวท์ 10 g : ",
-    "",
     "🪧ป้ายสินค้าใหม่",
     "- งดติดชั่วคราว",
     "",
@@ -769,6 +768,16 @@
     { id: "travel_brush_set_b1g1", label: "⛔สรุปแปรงชุดเดินทาง 1แถม1" },
     { id: "floss_b1g1", label: "⛔สรุปไหมขัดฟัน 1แถม1" },
     { id: "dentiste_max_45g_b1g1", label: "⛔สรุปเดนทิสเต้ MAX 45G 1แถม1" }
+  ];
+
+  const PROMOTION_MEDIA_ITEMS = [
+    { id: "sme_spot_clear_foam_40ml", label: "⭐SME สปอตเคลียร์โฟม40มล." },
+    { id: "sme_baby_face_gel_1_5oz", label: "⭐SME เบบี้เฟชเจลล้างหน้า 1.5oz" },
+    { id: "den_advanced_care_toothbrush", label: "⭐DEN แปรงสีฟันแอดวานซ์แคร์" },
+    { id: "sme_sun_zero_feel_sachet", label: "⭐SME สมูทอี ซัน ซีโร่ ฟีล(ซอง)" },
+    { id: "sme_acne_sun_5g_sachet", label: "⭐ SME สมูทอีแอคเน่ซัน 5g.(ซอง )" },
+    { id: "sme_white_cream_5g_sachet", label: "⭐SME ไวท์ครีม 5G. (ซอง)" },
+    { id: "sme_gold_cream_5g_sachet", label: "⭐SME โกลครีม 5G. (ซอง)" }
   ];
 
   const SKU_ITEMS = [
@@ -1024,6 +1033,7 @@
   const skuBoard = $("skuBoard");
   const skuListAll = $("skuListAll");
   const summaryTopicList = $("summaryTopicList");
+  const promotionMediaList = $("promotionMediaList");
 
   const histList = $("histList");
   const histCount = $("histCount");
@@ -1153,7 +1163,8 @@
       issue: DEFAULT_ISSUE_TEMPLATE,
       note: DEFAULT_NOTE_TEMPLATE,
       skuChecks: {},
-      summarySelections: {}
+      summarySelections: {},
+      promotionMediaSelections: {}
     };
   }
 
@@ -1164,7 +1175,7 @@
 
   function noteValueOrDefault(value){
     const text = String(value ?? "");
-    return text.trim() ? text : DEFAULT_NOTE_TEMPLATE;
+    return text.trim() ? stripPromotionMediaSection(text) : DEFAULT_NOTE_TEMPLATE;
   }
 
   function normalizeSkuChecks(raw){
@@ -1208,6 +1219,34 @@
     return out;
   }
 
+  function normalizePromotionMediaSelections(raw){
+    const out = {};
+    if (!raw || typeof raw !== "object") return out;
+
+    if (Array.isArray(raw)){
+      for (const id of raw){
+        if (typeof id !== "string") continue;
+        if (!PROMOTION_MEDIA_ITEMS.some((item) => item.id === id)) continue;
+        out[id] = true;
+      }
+      return out;
+    }
+
+    for (const item of PROMOTION_MEDIA_ITEMS){
+      out[item.id] = !!raw[item.id];
+    }
+    return out;
+  }
+
+  function stripPromotionMediaSection(value){
+    const lines = String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
+    const start = lines.findIndex((line) => line.trim() === "🪧สื่อโปรโมชั่น");
+    if (start < 0) return lines.join("\n").trim();
+    const end = lines.findIndex((line, index) => index > start && line.trim() === "🪧ป้ายสินค้าใหม่");
+    if (end < 0) return lines.join("\n").trim();
+    return [...lines.slice(0, start), ...lines.slice(end)].join("\n").replace(/^\s+|\s+$/g, "");
+  }
+
   function normalizeNotedState(raw){
     const out = defaultNotedState();
     if (!raw || typeof raw !== "object") return out;
@@ -1226,6 +1265,9 @@
     out.skuChecks = normalizeSkuChecks(source.skuChecks || source.checkedSkus || {});
     out.summarySelections = normalizeSummarySelections(
       source.summarySelections || source.summaryChecks || source.summaryTopics || {}
+    );
+    out.promotionMediaSelections = normalizePromotionMediaSelections(
+      source.promotionMediaSelections || source.promotionMedia || {}
     );
 
     return out;
@@ -1436,6 +1478,19 @@
         <span class="summaryTopicLabel">${escapeHtml(topic.label)}</span>
       `;
       summaryTopicList.appendChild(row);
+    }
+  }
+
+  function renderPromotionMedia(){
+    promotionMediaList.innerHTML = "";
+    for (const item of PROMOTION_MEDIA_ITEMS){
+      const row = document.createElement("label");
+      row.className = "summaryTopicItem";
+      row.innerHTML = `
+        <input type="checkbox" data-promotion-media-id="${escapeHtmlAttr(item.id)}" aria-label="${escapeHtmlAttr(item.label)}">
+        <span class="summaryTopicLabel">${escapeHtml(item.label)}</span>
+      `;
+      promotionMediaList.appendChild(row);
     }
   }
 
@@ -1683,14 +1738,41 @@
     }
   }
 
+  function collectPromotionMediaSelectionsFromDom(){
+    const out = {};
+    for (const item of PROMOTION_MEDIA_ITEMS){
+      const input = promotionMediaList.querySelector(`[data-promotion-media-id="${cssEscape(item.id)}"]`);
+      if (input instanceof HTMLInputElement && input.checked) out[item.id] = true;
+    }
+    return out;
+  }
+
+  function applyPromotionMediaSelectionsToDom(raw){
+    const normalized = normalizePromotionMediaSelections(raw);
+    for (const item of PROMOTION_MEDIA_ITEMS){
+      const input = promotionMediaList.querySelector(`[data-promotion-media-id="${cssEscape(item.id)}"]`);
+      if (input instanceof HTMLInputElement) input.checked = !!normalized[item.id];
+    }
+  }
+
+  function buildPromotionMediaText(){
+    const selected = normalizePromotionMediaSelections(collectPromotionMediaSelectionsFromDom());
+    const lines = ["🪧สื่อโปรโมชั่น"];
+    for (const item of PROMOTION_MEDIA_ITEMS){
+      if (selected[item.id]) lines.push(`${item.label} : ✅`);
+    }
+    return lines.join("\n");
+  }
+
   function buildNotedPayloadForParent(){
     return {
-      v: 3,
+      v: 4,
       locationArea: String(locationArea.value || "").trim(),
       issue: safeText(issueValueOrDefault(issue.value)).trimEnd(),
       note: safeText(note.value).trimEnd(),
       skuChecks: collectSkuChecksFromDom(),
-      summarySelections: collectSummarySelectionsFromDom()
+      summarySelections: collectSummarySelectionsFromDom(),
+      promotionMediaSelections: collectPromotionMediaSelectionsFromDom()
     };
   }
 
@@ -1719,7 +1801,7 @@
     const d = parseISODate(reportDate.value) || new Date();
     const locationText = safeText(locationArea.value).trim();
     const issueText = safeText(issueValueOrDefault(issue.value)).trimEnd();
-    const noteText = safeText(note.value).trimEnd();
+    const noteText = [buildPromotionMediaText(), safeText(note.value).trimEnd()].filter(Boolean).join("\n\n");
 
     const lines = [
       `วันที่ ${formatReportDateBuddhist2(d)}`,
@@ -1866,6 +1948,7 @@
       data.note = noteValueOrDefault(note.value);
       data.skuChecks = collectSkuChecksFromDom();
       data.summarySelections = collectSummarySelectionsFromDom();
+      data.promotionMediaSelections = collectPromotionMediaSelectionsFromDom();
     } else {
       delete data.account;
       delete data.branchCode;
@@ -1875,6 +1958,7 @@
       delete data.note;
       delete data.skuChecks;
       delete data.summarySelections;
+      delete data.promotionMediaSelections;
     }
 
     saveJSON(STORE_FORM, data);
@@ -1903,6 +1987,7 @@
       note.value = noteValueOrDefault(data.note);
       applySkuChecksToDom(data.skuChecks || {});
       applySummarySelectionsToDom(data.summarySelections || {});
+      applyPromotionMediaSelectionsToDom(data.promotionMediaSelections || {});
     } else {
       account.value = "";
       branchCode.value = "";
@@ -1912,6 +1997,7 @@
       note.value = DEFAULT_NOTE_TEMPLATE;
       applySkuChecksToDom({});
       applySummarySelectionsToDom({});
+      applyPromotionMediaSelectionsToDom({});
     }
 
     const resolvedDate = resolveStoredReportDate(data.reportDate, data.reportDateMode);
@@ -2289,6 +2375,10 @@
   summaryTopicList.addEventListener("change", () => {
     saveFormState();
   });
+  promotionMediaList.addEventListener("change", () => {
+    saveFormState();
+    updatePreview();
+  });
 
   skuBoard.addEventListener("change", (event) => {
     const target = event.target;
@@ -2355,6 +2445,7 @@
         note.value = DEFAULT_NOTE_TEMPLATE;
         clearAllSkuChecks();
         applySummarySelectionsToDom({});
+        applyPromotionMediaSelectionsToDom({});
         saveFormState();
         updatePreview();
         setStatus("wait", "ล้างฟอร์มแล้ว");
@@ -2381,6 +2472,7 @@
     note.value = noteValueOrDefault(noted.note);
     applySkuChecksToDom(noted.skuChecks || {});
     applySummarySelectionsToDom(noted.summarySelections || {});
+    applyPromotionMediaSelectionsToDom(noted.promotionMediaSelections || {});
     updatePreview();
     setStatus("wait", "Prefill แล้ว (Popup)");
   }
@@ -2443,7 +2535,8 @@
 
     customerGroup.textContent = FIXED_CUSTOMER_GROUP;
     renderLocationOptions();
-    renderSummaryTopics();
+  renderSummaryTopics();
+  renderPromotionMedia();
     renderSkuLists();
     loadGlobalSkuFlags();
     applyGlobalFlagsToDom();
