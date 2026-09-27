@@ -996,6 +996,15 @@
     sme_acne_cleansing_serum_80ml_new: MONTHLY_FLAG_FOCUS
   };
 
+  // Used only by the private Admin page to import the current built-in catalog once.
+  window.__PT_REPORT_CONFIG_SEED = {
+    skuItems: SKU_ITEMS,
+    summaryTopics: SUMMARY_TOPICS,
+    promotionMediaItems: PROMOTION_MEDIA_ITEMS,
+    copyLayouts: REPORT_COPY_LAYOUTS,
+    defaultFlags: DEFAULT_SKU_GLOBAL_FLAGS
+  };
+
   function getLineUrlByAccount(accountValue){
     const a = (accountValue || "").trim().toUpperCase();
     if (["CJ MORE", "LAWSON", "MINI BIG C", "VILLA MARKET"].includes(a)) return LINE_GROUPS.groupA;
