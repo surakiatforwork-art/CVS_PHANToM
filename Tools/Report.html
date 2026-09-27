@@ -705,6 +705,7 @@
   "use strict";
 
   const QUERY = new URLSearchParams(location.search);
+  const REPORT_CONFIG_API_URL = "https://script.google.com/macros/s/AKfycbw91N5J4z1Jjn0rZz8qnn-ZFmP6bYJ2IZaKrOXrDaTj3aJoAvGJCVJBy982T_pXilNS/exec";
   const EMBED = QUERY.get("embed") === "1";
   const HISTORY_MODE = QUERY.get("history") === "1" || location.hash === "#history";
 
@@ -760,7 +761,7 @@
     "สถานที่ใกล้ขนส่ง"
   ];
 
-  const SUMMARY_TOPICS = [
+  let SUMMARY_TOPICS = [
     { id: "brush_advanced_b1g1", label: "⛔สรุปแปรงแอดวานซ์ 1แถม1" },
     { id: "brush_pack3_b1g1", label: "⛔สรุปแปรงแพ็ค3 1แถม1" },
     { id: "acne_scar_5g_b1g1", label: "⛔สรุปแอคเน่สการ์5G 1แถม1" },
@@ -770,7 +771,7 @@
     { id: "dentiste_max_45g_b1g1", label: "⛔สรุปเดนทิสเต้ MAX 45G 1แถม1" }
   ];
 
-  const PROMOTION_MEDIA_ITEMS = [
+  let PROMOTION_MEDIA_ITEMS = [
     { id: "sme_spot_clear_foam_40ml", label: "⭐SME สปอตเคลียร์โฟม40มล." },
     { id: "sme_baby_face_gel_1_5oz", label: "⭐SME เบบี้เฟชเจลล้างหน้า 1.5oz" },
     { id: "den_advanced_care_toothbrush", label: "⭐DEN แปรงสีฟันแอดวานซ์แคร์" },
@@ -780,7 +781,7 @@
     { id: "sme_gold_cream_5g_sachet", label: "⭐SME โกลครีม 5G. (ซอง)" }
   ];
 
-  const SKU_ITEMS = [
+  let SKU_ITEMS = [
     { id: "sme_foam_baby_face_2oz", label: "SME โฟมเบบี้เฟช 2oz", family: "SME" },
     { id: "sme_foam_green_baby_face_1_2oz", label: "SME โฟมเขียวเบบี้เฟช 1.2oz", family: "SME" },
     { id: "sme_baby_face_gel_1_5oz", label: "SME เบบี้เฟชเจลล้างหน้า 1.5oz", family: "SME" },
@@ -893,9 +894,9 @@
     summary: "https://line.me/R/nv/chat/"
   };
 
-  const SKU_ITEM_MAP = new Map(SKU_ITEMS.map((item) => [item.id, item]));
+  let SKU_ITEM_MAP = new Map(SKU_ITEMS.map((item) => [item.id, item]));
   // The check form retains the master-list order. 7-ELEVEN uses this separate order only in copied reports.
-  const REPORT_COPY_LAYOUTS = {
+  let REPORT_COPY_LAYOUTS = {
     "7-ELEVEN": [
       {
         heading: "📍สินค้าโฟม SMOOTHE",
@@ -966,7 +967,7 @@
       }
     ]
   };
-  const DEFAULT_SKU_GLOBAL_FLAGS = {
+  let DEFAULT_SKU_GLOBAL_FLAGS = {
     sme_foam_green_baby_face_1_2oz: MONTHLY_FLAG_FOCUS,
     sme_white_foam_1oz: MONTHLY_FLAG_FOCUS,
     sme_green_cream_10g: MONTHLY_FLAG_FOCUS,
@@ -1004,6 +1005,15 @@
     copyLayouts: REPORT_COPY_LAYOUTS,
     defaultFlags: DEFAULT_SKU_GLOBAL_FLAGS
   };
+
+  const BUILTIN_REPORT_CONFIG = {
+    skuItems: JSON.parse(JSON.stringify(SKU_ITEMS)),
+    summaryTopics: JSON.parse(JSON.stringify(SUMMARY_TOPICS)),
+    promotionMediaItems: JSON.parse(JSON.stringify(PROMOTION_MEDIA_ITEMS)),
+    copyLayouts: JSON.parse(JSON.stringify(REPORT_COPY_LAYOUTS)),
+    defaultFlags: JSON.parse(JSON.stringify(DEFAULT_SKU_GLOBAL_FLAGS))
+  };
+  let reportConfigLoading = null;
 
   function getLineUrlByAccount(accountValue){
     const a = (accountValue || "").trim().toUpperCase();
@@ -1501,6 +1511,92 @@
       `;
       promotionMediaList.appendChild(row);
     }
+  }
+
+  function reportConfigJsonp(accountName){
+    return new Promise((resolve, reject) => {
+      const callback = `__ptReportConfig_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const url = new URL(REPORT_CONFIG_API_URL);
+      url.searchParams.set("action", "getReportConfig");
+      url.searchParams.set("account", accountName);
+      url.searchParams.set("callback", callback);
+      const script = document.createElement("script");
+      const timer = setTimeout(() => finish(new Error("หมดเวลารอ config รายงาน")), 30000);
+      function finish(error, value){
+        clearTimeout(timer);
+        delete window[callback];
+        script.remove();
+        error ? reject(error) : resolve(value);
+      }
+      window[callback] = (value) => finish(null, value);
+      script.onerror = () => finish(new Error("โหลด config รายงานไม่สำเร็จ"));
+      script.src = url.toString();
+      document.head.appendChild(script);
+    });
+  }
+
+  function restoreBuiltinReportConfig(){
+    SKU_ITEMS = JSON.parse(JSON.stringify(BUILTIN_REPORT_CONFIG.skuItems));
+    SUMMARY_TOPICS = JSON.parse(JSON.stringify(BUILTIN_REPORT_CONFIG.summaryTopics));
+    PROMOTION_MEDIA_ITEMS = JSON.parse(JSON.stringify(BUILTIN_REPORT_CONFIG.promotionMediaItems));
+    REPORT_COPY_LAYOUTS = JSON.parse(JSON.stringify(BUILTIN_REPORT_CONFIG.copyLayouts));
+    DEFAULT_SKU_GLOBAL_FLAGS = JSON.parse(JSON.stringify(BUILTIN_REPORT_CONFIG.defaultFlags));
+    SKU_ITEM_MAP = new Map(SKU_ITEMS.map((item) => [item.id, item]));
+  }
+
+  function applyRemoteReportConfig(accountName, records){
+    const active = (records || []).filter((item) => item && item.active !== false);
+    if (!active.length) return false;
+    const skuRecords = active.filter((item) => item.kind === "sku").sort((a, b) => a.sort - b.sort);
+    if (!skuRecords.length) return false;
+    SKU_ITEMS = skuRecords.map((item) => ({
+      id: String(item.id), label: String((item.data || {}).label || item.id),
+      family: (item.data || {}).family === "DEN" ? "DEN" : "SME", accounts: [accountName],
+      category: String((item.data || {}).category || "📍สินค้าอื่นๆ"), sort: Number(item.sort) || 0
+    }));
+    SUMMARY_TOPICS = active.filter((item) => item.kind === "summary").sort((a, b) => a.sort - b.sort)
+      .map((item) => ({ id: String(item.id), label: String((item.data || {}).label || item.id) }));
+    PROMOTION_MEDIA_ITEMS = active.filter((item) => item.kind === "promotion").sort((a, b) => a.sort - b.sort)
+      .map((item) => ({ id: String(item.id), label: String((item.data || {}).label || item.id) }));
+    DEFAULT_SKU_GLOBAL_FLAGS = {};
+    for (const item of skuRecords){
+      const flag = normalizeMonthlyFlag((item.data || {}).defaultFlag);
+      if (flag) DEFAULT_SKU_GLOBAL_FLAGS[item.id] = flag;
+    }
+    const groups = new Map();
+    for (const item of SKU_ITEMS){
+      if (!groups.has(item.category)) groups.set(item.category, []);
+      groups.get(item.category).push(item.id);
+    }
+    REPORT_COPY_LAYOUTS = { [safeText(accountName).trim().toUpperCase()]: [...groups.entries()].map(([heading, ids]) => ({ heading, ids })) };
+    SKU_ITEM_MAP = new Map(SKU_ITEMS.map((item) => [item.id, item]));
+    return true;
+  }
+
+  async function loadOnlineReportConfig(accountName = account.value){
+    const normalized = safeText(accountName).trim();
+    if (!normalized || reportConfigLoading) return reportConfigLoading;
+    const skuChecks = collectSkuChecksFromDom();
+    const summaries = collectSummarySelectionsFromDom();
+    const promotions = collectPromotionMediaSelectionsFromDom();
+    reportConfigLoading = reportConfigJsonp(normalized).then((result) => {
+      restoreBuiltinReportConfig();
+      if (!result || !result.ok) throw new Error((result && result.message) || "โหลด config ไม่สำเร็จ");
+      applyRemoteReportConfig(normalized, result.items);
+      renderSummaryTopics(); renderPromotionMedia(); renderSkuLists();
+      loadGlobalSkuFlags(); applyGlobalFlagsToDom();
+      applySkuChecksToDom(skuChecks); applySummarySelectionsToDom(summaries); applyPromotionMediaSelectionsToDom(promotions);
+      updatePreview();
+      setStatus("ok", "Config ออนไลน์พร้อม");
+    }).catch(() => {
+      restoreBuiltinReportConfig();
+      renderSummaryTopics(); renderPromotionMedia(); renderSkuLists();
+      loadGlobalSkuFlags(); applyGlobalFlagsToDom();
+      applySkuChecksToDom(skuChecks); applySummarySelectionsToDom(summaries); applyPromotionMediaSelectionsToDom(promotions);
+      updatePreview();
+      setStatus("wait", "ใช้ config ในเครื่อง");
+    }).finally(() => { reportConfigLoading = null; });
+    return reportConfigLoading;
   }
 
   function createSkuRow(item){
@@ -2381,6 +2477,7 @@
   bindSaveOnInput(locationArea);
   bindSaveOnInput(issue);
   bindSaveOnInput(note);
+  account.addEventListener("change", () => { loadOnlineReportConfig(account.value); });
   summaryTopicList.addEventListener("change", () => {
     saveFormState();
   });
@@ -2483,6 +2580,7 @@
     applySummarySelectionsToDom(noted.summarySelections || {});
     applyPromotionMediaSelectionsToDom(noted.promotionMediaSelections || {});
     updatePreview();
+    loadOnlineReportConfig(account.value);
     setStatus("wait", "Prefill แล้ว (Popup)");
   }
 
@@ -2550,6 +2648,7 @@
     loadGlobalSkuFlags();
     applyGlobalFlagsToDom();
     const reportDateAdjusted = loadFormState();
+    loadOnlineReportConfig(account.value);
     loadHistory();
 
     if (!EMBED){
