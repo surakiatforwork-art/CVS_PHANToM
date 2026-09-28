@@ -1549,26 +1549,32 @@
   function applyRemoteReportConfig(accountName, records){
     const active = (records || []).filter((item) => item && item.active !== false);
     if (!active.length) return false;
-    const skuRecords = active.filter((item) => item.kind === "sku").sort((a, b) => a.sort - b.sort);
-    if (!skuRecords.length) return false;
+    const skuRecordsForCopy = active.filter((item) => item.kind === "sku").sort((a, b) => a.sort - b.sort);
+    if (!skuRecordsForCopy.length) return false;
+    const skuRecords = [...skuRecordsForCopy].sort((a, b) => {
+      const aSort = Number((a.data || {}).formSort) || Number(a.sort) || 0;
+      const bSort = Number((b.data || {}).formSort) || Number(b.sort) || 0;
+      return aSort - bSort || a.sort - b.sort;
+    });
     SKU_ITEMS = skuRecords.map((item) => ({
       id: String(item.id), label: String((item.data || {}).label || item.id),
       family: (item.data || {}).family === "DEN" ? "DEN" : "SME", accounts: [accountName],
-      category: String((item.data || {}).category || "📍สินค้าอื่นๆ"), sort: Number(item.sort) || 0
+      category: String((item.data || {}).category || "📍สินค้าอื่นๆ"), sort: Number((item.data || {}).formSort) || Number(item.sort) || 0
     }));
     SUMMARY_TOPICS = active.filter((item) => item.kind === "summary").sort((a, b) => a.sort - b.sort)
       .map((item) => ({ id: String(item.id), label: String((item.data || {}).label || item.id) }));
     PROMOTION_MEDIA_ITEMS = active.filter((item) => item.kind === "promotion").sort((a, b) => a.sort - b.sort)
       .map((item) => ({ id: String(item.id), label: String((item.data || {}).label || item.id) }));
     DEFAULT_SKU_GLOBAL_FLAGS = {};
-    for (const item of skuRecords){
+    for (const item of skuRecordsForCopy){
       const flag = normalizeMonthlyFlag((item.data || {}).defaultFlag);
       if (flag) DEFAULT_SKU_GLOBAL_FLAGS[item.id] = flag;
     }
     const groups = new Map();
-    for (const item of SKU_ITEMS){
-      if (!groups.has(item.category)) groups.set(item.category, []);
-      groups.get(item.category).push(item.id);
+    for (const item of skuRecordsForCopy){
+      const category = String((item.data || {}).category || "📍สินค้าอื่นๆ");
+      if (!groups.has(category)) groups.set(category, []);
+      groups.get(category).push(String(item.id));
     }
     REPORT_COPY_LAYOUTS = { [safeText(accountName).trim().toUpperCase()]: [...groups.entries()].map(([heading, ids]) => ({ heading, ids })) };
     SKU_ITEM_MAP = new Map(SKU_ITEMS.map((item) => [item.id, item]));
