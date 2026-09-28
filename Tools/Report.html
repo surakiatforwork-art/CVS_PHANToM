@@ -1591,11 +1591,12 @@
     }catch(_){}
   }
 
-  async function getLatestReportConfig(accountName, verifiedVersion = null){
+  async function getLatestReportConfig(accountName, verifiedVersion = null, cacheOnly = false){
     const cached = readReportConfigCache(accountName);
-    if (cached && verifiedVersion !== null && Number(cached.version) === Number(verifiedVersion)){
+    if (cached && (cacheOnly || (verifiedVersion !== null && Number(cached.version) === Number(verifiedVersion)))){
       return { result: cached.result, fromCache: true };
     }
+    if (cacheOnly) throw new Error("ไม่พบ config ในเครื่อง");
     try{
       const meta = await reportConfigMetaJsonp(accountName);
       if (!meta || !meta.ok) throw new Error((meta && meta.message) || "โหลดสถานะ config ไม่สำเร็จ");
@@ -1657,7 +1658,7 @@
     return true;
   }
 
-  async function loadOnlineReportConfig(accountName = account.value, forceRefresh = false, preservedState = null, verifiedVersion = null){
+  async function loadOnlineReportConfig(accountName = account.value, forceRefresh = false, preservedState = null, verifiedVersion = null, cacheOnly = false){
     const normalized = safeText(accountName).trim();
     const savedSkuChecks = preservedState ? (preservedState.skuChecks || {}) : collectSkuChecksFromDom();
     const savedSummaries = preservedState ? (preservedState.summarySelections || {}) : collectSummarySelectionsFromDom();
@@ -1669,7 +1670,7 @@
     }
     if (reportConfigLoading && reportConfigLoadingAccount === normalized && !forceRefresh) return reportConfigLoading;
     const requestId = ++reportConfigRequestId;
-    reportConfigLoading = getLatestReportConfig(normalized, verifiedVersion).then(({ result, fromCache, offline }) => {
+    reportConfigLoading = getLatestReportConfig(normalized, verifiedVersion, cacheOnly).then(({ result, fromCache, offline }) => {
       if (requestId !== reportConfigRequestId) return false;
       restoreBuiltinReportConfig();
       if (!result || !result.ok) throw new Error((result && result.message) || "โหลด config ไม่สำเร็จ");
@@ -2682,7 +2683,7 @@
       skuChecks: noted.skuChecks || {},
       summarySelections: noted.summarySelections || {},
       promotionMediaSelections: noted.promotionMediaSelections || {}
-    }, payload.reportConfigVersion ?? null);
+    }, payload.reportConfigVersion ?? null, !!payload.cacheOnly);
     setStatus("wait", "Prefill แล้ว (Popup)");
   }
 
@@ -2752,7 +2753,7 @@
     loadGlobalSkuFlags();
     applyGlobalFlagsToDom();
     const reportDateAdjusted = loadFormState();
-    loadOnlineReportConfig(account.value);
+    if (!EMBED) loadOnlineReportConfig(account.value);
     loadHistory();
 
     if (!EMBED){

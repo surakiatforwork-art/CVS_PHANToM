@@ -3589,6 +3589,7 @@
 
   function openReport(place){
     var openRequestId = ++REPORT_OPEN_REQUEST_ID;
+    var cachedConfigAtOpen = readReportConfigCache_(String(place && place.account || '').trim().toUpperCase());
     var configRefresh = refreshReportConfigCache_(place && place.account);
     REPORT_CTX = place || null;
     REPORT_SESSION = buildReportSession_(place, CURRENT_SHEET);
@@ -3624,13 +3625,16 @@
       patchReportEmbedStorageOnce();
       attachCopyHistoryHookOnce();
       clearRestrictedFieldsOnce();
-      var configState = await configRefresh;
+      // Only a first-ever account load waits for the background cache download.
+      if(!cachedConfigAtOpen) await configRefresh;
       if(openRequestId !== REPORT_OPEN_REQUEST_ID) return;
       var win = getReportWin();
       var payload = buildReportPrefillPayload_(REPORT_CTX);
       payload.forceConfigRefresh = true;
-      if(configState && configState.verified && configState.version !== null){
-        payload.reportConfigVersion = configState.version;
+      var cachedConfig = readReportConfigCache_(String(REPORT_CTX && REPORT_CTX.account || '').trim().toUpperCase());
+      payload.cacheOnly = !!cachedConfig;
+      if(cachedConfig && cachedConfig.version !== null && cachedConfig.version !== undefined){
+        payload.reportConfigVersion = cachedConfig.version;
       }
       if(win && typeof win.__PT_APPLY_PREFILL === 'function'){
         try{
