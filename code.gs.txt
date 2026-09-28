@@ -49,6 +49,9 @@ function doGet(e) {
       case 'getReportConfig':
         result = api_getReportConfig_(p.account);
         break;
+      case 'getReportConfigMeta':
+        result = api_getReportConfigMeta_(p.account);
+        break;
       case 'saveReportConfigItem':
         result = api_saveReportConfigItem_(p.account, p.kind, p.id, p.sort, p.active, p.data);
         break;
@@ -89,7 +92,7 @@ function api_getSheets_() {
 function doPost(e) {
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    if (body.action === 'saveReportConfigBulk') return output_(api_saveReportConfigBulk_(body.items), '');
+    if (body.action === 'saveReportConfigBulk') return output_(api_saveReportConfigBulk_(body.items, body.requestId), '');
     return output_({ ok: false, message: 'Unknown POST action' }, '');
   } catch (err) {
     return output_({ ok: false, message: (err && err.message) ? err.message : String(err) }, '');
@@ -108,11 +111,48 @@ function getReportConfigSheet_() {
   return sheet;
 }
 
+function reportConfigAccountKey_(account) {
+  return safeStr_(account).toUpperCase().replace(/[^\wก-๙]/g, '_') || 'DEFAULT';
+}
+
+function reportConfigCacheKey_(account, version) {
+  return 'report_config_v2_' + reportConfigAccountKey_(account) + '_rev_' + String(version);
+}
+
+function reportConfigRequestKey_(account) {
+  return 'REPORT_CONFIG_REQUEST_' + reportConfigAccountKey_(account);
+}
+
+function api_getReportConfigMeta_(accountParam) {
+  const account = safeStr_(accountParam);
+  const props = PropertiesService.getScriptProperties();
+  let lastRequest = {};
+  try { lastRequest = JSON.parse(props.getProperty(reportConfigRequestKey_(account)) || '{}'); } catch (_) {}
+  return {
+    ok: true,
+    account,
+    version: getRev_(CONFIG.REPORT_CONFIG_SHEET),
+    lastRequestId: safeStr_(lastRequest.id),
+    updatedAt: safeStr_(lastRequest.updatedAt),
+  };
+}
+
 function api_getReportConfig_(accountParam) {
   const account = safeStr_(accountParam);
+  const version = getRev_(CONFIG.REPORT_CONFIG_SHEET);
+  const cache = CacheService.getScriptCache();
+  const cacheKey = reportConfigCacheKey_(account, version);
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (_) {}
+  }
   const sheet = getReportConfigSheet_();
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { ok: true, account, items: [], version: 1 };
+  if (lastRow < 2) {
+    const empty = { ok: true, account, items: [], version };
+    try { cache.put(cacheKey, JSON.stringify(empty), 21600); } catch (_) {}
+    return empty;
+  }
   const rows = sheet.getRange(2, 1, lastRow - 1, CONFIG.REPORT_CONFIG_HEADERS.length).getValues();
   const items = [];
   for (let i = 0; i < rows.length; i++) {
@@ -122,7 +162,9 @@ function api_getReportConfig_(accountParam) {
       items.push({ account: safeStr_(row[0]), kind: safeStr_(row[1]), id: safeStr_(row[2]), sort: Number(row[3]) || 0, active: String(row[4]) !== '0', data: JSON.parse(String(row[5] || '{}')) });
     } catch (_) {}
   }
-  return { ok: true, account, items, version: getRev_(CONFIG.REPORT_CONFIG_SHEET) };
+  const result = { ok: true, account, items, version };
+  try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch (_) {}
+  return result;
 }
 
 function api_saveReportConfigItem_(accountParam, kindParam, idParam, sortParam, activeParam, dataParam) {
@@ -153,7 +195,7 @@ function api_deleteReportConfigItem_(accountParam, kindParam, idParam) {
   return { ok: true };
 }
 
-function api_saveReportConfigBulk_(items) {
+function api_saveReportConfigBulk_(items, requestIdParam) {
   if (!Array.isArray(items) || !items.length) return { ok: false, message: 'Missing config items' };
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) return { ok: false, message: 'มีรายการอื่นกำลังบันทึก กรุณาลองอีกครั้ง' };
@@ -170,9 +212,16 @@ function api_saveReportConfigBulk_(items) {
     const existing = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, CONFIG.REPORT_CONFIG_HEADERS.length).getValues() : [];
     const kept = existing.filter(function(row) { return !accounts[safeStr_(row[0])]; });
     const allRows = kept.concat(rows);
-    if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, CONFIG.REPORT_CONFIG_HEADERS.length).clearContent();
+    // Write replacement rows first so readers never see an empty config table.
     sheet.getRange(2, 1, allRows.length, CONFIG.REPORT_CONFIG_HEADERS.length).setValues(allRows);
-    return { ok: true, count: rows.length, version: bumpRev_(CONFIG.REPORT_CONFIG_SHEET) };
+    if (lastRow - 1 > allRows.length) sheet.getRange(2 + allRows.length, 1, lastRow - 1 - allRows.length, CONFIG.REPORT_CONFIG_HEADERS.length).clearContent();
+    const version = bumpRev_(CONFIG.REPORT_CONFIG_SHEET);
+    const requestId = safeStr_(requestIdParam);
+    const props = PropertiesService.getScriptProperties();
+    Object.keys(accounts).forEach(function(account) {
+      props.setProperty(reportConfigRequestKey_(account), JSON.stringify({ id: requestId, updatedAt: new Date().toISOString() }));
+    });
+    return { ok: true, count: rows.length, version, requestId };
   } finally { lock.releaseLock(); }
 }
 
