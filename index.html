@@ -352,7 +352,8 @@
       cursor:pointer;
       -webkit-tap-highlight-color: transparent;
     }
-    button:active{transform:scale(.99)}
+    button{transition:transform .14s ease,filter .14s ease,opacity .14s ease,box-shadow .14s ease}
+    button:active{transform:scale(.97);filter:brightness(.96)}
     .btn-solid{
       background:rgba(255,255,255,.92);
       color:#0b2f2a;
@@ -508,7 +509,9 @@
       font-weight:1000;
       cursor:pointer;
     }
-    .map-history-fab:active{ transform:scale(.96); }
+    .map-history-fab{transition:transform .18s ease,box-shadow .18s ease,filter .18s ease}
+    .map-history-fab:hover{box-shadow:0 14px 30px rgba(6,78,70,.40)}
+    .map-history-fab:active{ transform:scale(.94); }
 
     body.map-open main{
       height: calc(100svh - var(--hdrH) - var(--tabsH));
@@ -526,6 +529,8 @@
       z-index:0;
     }
 
+    @keyframes overlayIn{from{opacity:0}to{opacity:1}}
+    @keyframes popupIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
     .backdrop{
       position:fixed; inset:0;
       display:none; align-items:center; justify-content:center;
@@ -533,6 +538,8 @@
       background:rgba(0,0,0,.45);
       z-index:99999;
     }
+    .backdrop[aria-hidden="false"]{animation:overlayIn .18s ease-out both}
+    .backdrop[aria-hidden="false"] .modal{animation:popupIn .26s cubic-bezier(.2,.8,.25,1) both}
     .modal{
       width:min(560px,100%);
       background:#fff;
@@ -948,7 +955,8 @@
       justify-content:center;
       padding:10px;
     }
-    .rep-overlay.show{ display:flex; }
+    .rep-overlay.show{ display:flex; animation:overlayIn .18s ease-out both; }
+    .rep-overlay.show .rep-modal{ animation:popupIn .28s cubic-bezier(.2,.8,.25,1) both; }
     .rep-modal{
       width:min(1200px, 100%);
       height:min(92vh, 100%);
@@ -992,10 +1000,16 @@
       font-weight:1000;
       cursor:pointer;
     }
+    .rep-frame-stage{position:relative;flex:1;min-height:0;background:#fff}
+    .rep-frame-loader{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:linear-gradient(135deg,#f7fffd,#edf9f6);color:#386a63;font-weight:1000;transition:opacity .2s ease,visibility .2s ease}
+    .rep-frame-loader .spinner{width:38px;height:38px;border-width:4px;margin:0}
+    .rep-modal:not(.is-loading) .rep-frame-loader{opacity:0;visibility:hidden;pointer-events:none}
+    .rep-frame-stage iframe{position:relative;z-index:2;opacity:1;transition:opacity .18s ease}
+    .rep-modal.is-loading .rep-frame-stage iframe{opacity:.18}
     #repFrame,
     #historyFrame{
       width:100%;
-      height: calc(100% - var(--repBarH));
+      height:100%;
       border:0;
       background:#fff;
     }
@@ -1010,7 +1024,8 @@
       justify-content:center;
       padding:10px;
     }
-    .set-overlay.show{ display:flex; }
+    .set-overlay.show{ display:flex; animation:overlayIn .18s ease-out both; }
+    .set-overlay.show .set-modal{animation:popupIn .26s cubic-bezier(.2,.8,.25,1) both}
     .store-edit-overlay{
       position:fixed;
       inset:0;
@@ -1021,7 +1036,12 @@
       justify-content:center;
       padding:12px;
     }
-    .store-edit-overlay.show{ display:flex; }
+    .store-edit-overlay.show{ display:flex; animation:overlayIn .18s ease-out both; }
+    .store-edit-overlay.show .store-edit-modal{animation:popupIn .26s cubic-bezier(.2,.8,.25,1) both}
+
+    @media(prefers-reduced-motion:reduce){
+      *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+    }
     .store-edit-modal{
       width:min(560px,100%);
       max-height:min(92dvh,100%);
@@ -1644,24 +1664,24 @@
 <div id="storeNamePeek" class="store-name-peek" role="status" aria-live="polite" aria-hidden="true"></div>
 
 <div id="repOverlay" class="rep-overlay" aria-hidden="true">
-  <div class="rep-modal" role="dialog" aria-modal="true">
+  <div class="rep-modal is-loading" role="dialog" aria-modal="true">
     <div class="rep-bar">
       <div class="rep-title">🧾 Report</div>
       <div id="repSub" class="rep-sub">—</div>
       <button id="repClose" class="rep-close" type="button">ปิด</button>
     </div>
-    <iframe id="repFrame" title="Report Popup" src=""></iframe>
+    <div class="rep-frame-stage"><div class="rep-frame-loader"><div class="spinner"></div><span>กำลังเตรียม Report…</span></div><iframe id="repFrame" title="Report Popup" src=""></iframe></div>
   </div>
 </div>
 
 <div id="historyOverlay" class="rep-overlay" aria-hidden="true">
-  <div class="rep-modal" role="dialog" aria-modal="true" aria-label="ประวัติ Report">
+  <div class="rep-modal is-loading" role="dialog" aria-modal="true" aria-label="ประวัติ Report">
     <div class="rep-bar">
       <div class="rep-title">🧾 ประวัติ Report</div>
       <div class="rep-sub">คัดลอก ลบ และเลือกรายการได้จากหน้าต่างนี้</div>
       <button id="historyClose" class="rep-close" type="button">ปิด</button>
     </div>
-    <iframe id="historyFrame" title="Report History" src=""></iframe>
+    <div class="rep-frame-stage"><div class="rep-frame-loader"><div class="spinner"></div><span>กำลังอัปเดตประวัติ…</span></div><iframe id="historyFrame" title="Report History" src=""></iframe></div>
   </div>
 </div>
 
@@ -3313,6 +3333,12 @@
     }
   }
 
+  function setReportOverlayLoading_(overlayId, loading){
+    var overlay = $(overlayId);
+    var modal = overlay && overlay.querySelector('.rep-modal');
+    if(modal) modal.classList.toggle('is-loading', !!loading);
+  }
+
   function openReport(place){
     REPORT_CTX = place || null;
     REPORT_SESSION = buildReportSession_(place, CURRENT_SHEET);
@@ -3328,6 +3354,7 @@
       $('repSub').textContent = '—';
     }
 
+    setReportOverlayLoading_('repOverlay', true);
     $('repOverlay').classList.add('show');
     $('repOverlay').setAttribute('aria-hidden','false');
     document.body.classList.add('rep-open');
@@ -3349,6 +3376,7 @@
       clearRestrictedFieldsOnce();
       postReportPrefillMessage_();
       startPrefillLoop();
+      setReportOverlayLoading_('repOverlay', false);
     }
 
     if(!curOk){
@@ -3375,6 +3403,7 @@
     $('repOverlay').classList.remove('show');
     $('repOverlay').setAttribute('aria-hidden','true');
     document.body.classList.remove('rep-open');
+    setReportOverlayLoading_('repOverlay', true);
   }
 
   $('repClose').addEventListener('click', closeReport);
@@ -3390,13 +3419,15 @@
 
     // Reboot the history-only document so it reads the latest local report history.
     // This deliberately avoids the slow store API refresh used by the map page.
+    setReportOverlayLoading_('historyOverlay', true);
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('rep-open');
     frame.dataset.historyRefreshId = refreshId;
     frame.onload = function(){
       if(frame.dataset.historyRefreshId !== refreshId) return;
       frame.onload = null;
-      overlay.classList.add('show');
-      overlay.setAttribute('aria-hidden', 'false');
-      document.body.classList.add('rep-open');
+      setReportOverlayLoading_('historyOverlay', false);
     };
 
     if(frame.dataset.historyLoaded === '1'){
@@ -3415,6 +3446,7 @@
     $('historyOverlay').classList.remove('show');
     $('historyOverlay').setAttribute('aria-hidden', 'true');
     document.body.classList.remove('rep-open');
+    setReportOverlayLoading_('historyOverlay', true);
   }
 
   $('mapHistoryFab').addEventListener('click', openReportHistory);
