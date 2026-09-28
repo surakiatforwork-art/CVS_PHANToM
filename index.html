@@ -2691,8 +2691,8 @@
   var map = null;
   var placesLayer = null;
   var placesCanvasRenderer = null;
-  // Change mode to 'dom' to restore the original pin markers without changing data logic.
-  var MAP_MARKER_RENDERER = { mode:'canvas' };
+  // Keep the original Leaflet pin markers as the default map appearance.
+  var MAP_MARKER_RENDERER = { mode:'dom' };
   var MAP_VIEWPORT_MARKERS = { enabled:false, padding:0.25, focusZoom:16 };
   var viewportMarkerTimer = null;
   var currentMarker = null;
