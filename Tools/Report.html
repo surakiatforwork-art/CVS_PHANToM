@@ -1547,10 +1547,11 @@
   }
 
   function applyRemoteReportConfig(accountName, records){
+    // A saved record set is authoritative, even when every item is disabled.
+    // Only accounts with no records at all should fall back to the built-in catalog.
+    if (!Array.isArray(records) || !records.length) return false;
     const active = (records || []).filter((item) => item && item.active !== false);
-    if (!active.length) return false;
     const skuRecordsForCopy = active.filter((item) => item.kind === "sku").sort((a, b) => a.sort - b.sort);
-    if (!skuRecordsForCopy.length) return false;
     const skuRecords = [...skuRecordsForCopy].sort((a, b) => {
       const aSort = Number((a.data || {}).formSort) || Number(a.sort) || 0;
       const bSort = Number((b.data || {}).formSort) || Number(b.sort) || 0;
