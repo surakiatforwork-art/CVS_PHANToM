@@ -2671,6 +2671,9 @@
   var lastRealtimeRenderAt = 0;
   var routeLayer = null;
   var routeRequest = null;
+  var activeWebRoute = null;
+  var routeArrivalTimer = null;
+  var routeRefreshTimer = null;
   var markerById = new Map();
   var routeEditPlace = null;
   var locationEditPlace = null;
@@ -2838,6 +2841,11 @@
     if(routeRequest){ try{ routeRequest.abort(); }catch(e){} routeRequest = null; }
     if(routeLayer && map){ try{ map.removeLayer(routeLayer); }catch(e){} }
     routeLayer = null;
+    activeWebRoute = null;
+    clearTimeout(routeArrivalTimer);
+    clearTimeout(routeRefreshTimer);
+    routeArrivalTimer = null;
+    routeRefreshTimer = null;
   }
 
   function showPlaceOnMap_(place){
@@ -2853,24 +2861,27 @@
     });
   }
 
-  async function drawWebRoute_(place){
+  async function drawWebRoute_(place, isRefresh){
     if(!map || !currentLatLng || !hasLatLng_(place)) return false;
-    clearWebRoute_();
+    if(routeRequest){ try{ routeRequest.abort(); }catch(e){} routeRequest = null; }
+    var routeState = { place:place, destination:{lat:Number(place.lat), lng:Number(place.lng)}, lastOrigin:{lat:currentLatLng.lat, lng:currentLatLng.lng}, lastRequestedAt:Date.now() };
+    activeWebRoute = routeState;
     var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     routeRequest = controller;
     var origin = currentLatLng.lng + ',' + currentLatLng.lat;
     var destination = place.lng + ',' + place.lat;
     var url = 'https://router.project-osrm.org/route/v1/driving/' + origin + ';' + destination + '?overview=full&geometries=geojson';
     try{
-      showToast('กำลังคำนวณเส้นทาง…');
+      if(!isRefresh) showToast('กำลังคำนวณเส้นทาง…');
       var response = await fetch(url, { signal: controller ? controller.signal : undefined });
       var result = await response.json();
-      if(routeRequest !== controller || !result || result.code !== 'Ok' || !result.routes || !result.routes[0]) return false;
+      if(routeRequest !== controller || activeWebRoute !== routeState || !result || result.code !== 'Ok' || !result.routes || !result.routes[0]) return false;
+      if(routeLayer){ try{ map.removeLayer(routeLayer); }catch(e){} routeLayer = null; }
       routeLayer = L.geoJSON(result.routes[0].geometry, { style:{ color:'#0f8f83', weight:6, opacity:.88, lineCap:'round', lineJoin:'round' } }).addTo(map);
       var bounds = routeLayer.getBounds();
-      if(bounds && bounds.isValid()) map.fitBounds(bounds.pad(0.16), { animate:true, duration:.35 });
+      if(!isRefresh && bounds && bounds.isValid()) map.fitBounds(bounds.pad(0.16), { animate:true, duration:.35 });
       var route = result.routes[0];
-      showToast('เส้นทาง ' + (route.distance / 1000).toFixed(1) + ' กม. · ประมาณ ' + Math.max(1, Math.round(route.duration / 60)) + ' นาที');
+      if(!isRefresh) showToast('เส้นทาง ' + (route.distance / 1000).toFixed(1) + ' กม. · ประมาณ ' + Math.max(1, Math.round(route.duration / 60)) + ' นาที');
       return true;
     }catch(e){
       if(e && e.name === 'AbortError') return false;
@@ -2880,6 +2891,31 @@
     }finally{
       if(routeRequest === controller) routeRequest = null;
     }
+  }
+
+  function updateActiveWebRoute_(point){
+    var route = activeWebRoute;
+    if(!route || !point) return;
+    var destinationMeters = haversineKm(point, route.destination) * 1000;
+    if(destinationMeters <= 200){
+      if(!routeArrivalTimer){
+        routeArrivalTimer = setTimeout(function(){
+          if(activeWebRoute === route && currentLatLng && haversineKm(currentLatLng, route.destination) * 1000 <= 200){
+            clearWebRoute_();
+            showToast('ถึงปลายทางแล้ว · ซ่อนเส้นทาง');
+          }
+        }, 3000);
+      }
+      return;
+    }
+    if(routeArrivalTimer){ clearTimeout(routeArrivalTimer); routeArrivalTimer = null; }
+
+    var movedMeters = route.lastOrigin ? haversineKm(point, route.lastOrigin) * 1000 : Infinity;
+    if(movedMeters < 25 || Date.now() - route.lastRequestedAt < 7000 || routeRefreshTimer) return;
+    routeRefreshTimer = setTimeout(function(){
+      routeRefreshTimer = null;
+      if(activeWebRoute === route && currentLatLng) drawWebRoute_(route.place, true);
+    }, 350);
   }
 
   async function navigateToPlace_(place){
@@ -4796,6 +4832,7 @@
     else currentLatLng = next;
 
     $('gpsPill').textContent = realtime ? 'GPS: ติดตามอยู่' : 'GPS: พร้อม';
+    if(activeWebRoute) updateActiveWebRoute_(next);
     if($('sortMode').value === 'nearest' && (!realtime || Date.now() - lastRealtimeRenderAt > 2500)){
       lastRealtimeRenderAt = Date.now();
       renderList();
