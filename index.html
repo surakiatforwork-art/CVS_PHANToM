@@ -1005,7 +1005,7 @@
     .rep-frame-loader .spinner{width:38px;height:38px;border-width:4px;margin:0}
     .rep-modal:not(.is-loading) .rep-frame-loader{opacity:0;visibility:hidden;pointer-events:none}
     .rep-frame-stage iframe{position:relative;z-index:2;opacity:1;transition:opacity .18s ease}
-    .rep-modal.is-loading .rep-frame-stage iframe{opacity:.18}
+    .rep-modal.is-loading .rep-frame-stage iframe{opacity:0;pointer-events:none}
     #repFrame,
     #historyFrame{
       width:100%;
@@ -3631,6 +3631,7 @@
       var win = getReportWin();
       var payload = buildReportPrefillPayload_(REPORT_CTX);
       payload.forceConfigRefresh = true;
+      payload.prefillRequestId = openRequestId;
       var cachedConfig = readReportConfigCache_(String(REPORT_CTX && REPORT_CTX.account || '').trim().toUpperCase());
       payload.cacheOnly = !!cachedConfig;
       if(cachedConfig && cachedConfig.version !== null && cachedConfig.version !== undefined){
@@ -3647,7 +3648,7 @@
       }
       if(openRequestId !== REPORT_OPEN_REQUEST_ID) return;
       postReportPrefillMessage_(payload);
-      startPrefillLoop();
+      startPrefillLoop(payload);
     }
 
     if(!curOk){
@@ -3748,6 +3749,7 @@
     if(msg.type === 'PT_PREFILL_ACK'){
       var activeToken = REPORT_SESSION && REPORT_SESSION.token ? String(REPORT_SESSION.token) : '';
       if(msg.reportToken && activeToken && String(msg.reportToken) !== activeToken) return;
+      if(Number(msg.prefillRequestId) !== REPORT_OPEN_REQUEST_ID) return;
       REPORT_PREFILL_ACKED = true;
       setReportOverlayLoading_('repOverlay', false);
       return;
@@ -3899,7 +3901,7 @@
     });
   }
 
-  function prefillReportOnce(){
+  function prefillReportOnce(payload){
     var place = REPORT_CTX;
     if(!place) return false;
 
@@ -3913,7 +3915,7 @@
     var num = (place.number !== undefined && place.number !== null) ? String(place.number) : '';
     var nam = (place.account_name !== undefined && place.account_name !== null) ? String(place.account_name) : '';
     var noted = readPlaceNoted_(place);
-    var fullPayload = buildReportPrefillPayload_(place);
+    var fullPayload = payload || buildReportPrefillPayload_(place);
 
     if(typeof win.__PT_APPLY_PREFILL === 'function'){
       try{
@@ -3958,7 +3960,7 @@
     return !!(okA || okN || okS || okL || okI || okT);
   }
 
-  function startPrefillLoop(){
+  function startPrefillLoop(payload){
     var tries = 0;
     var maxTries = 50;
     var interval = 120;
@@ -3966,13 +3968,13 @@
     var t = setInterval(function(){
       tries++;
       if(!REPORT_PREFILL_ACKED && tries <= 12){
-        postReportPrefillMessage_();
+        postReportPrefillMessage_(payload);
       }
       tryTrimReportUI();
       patchReportEmbedStorageOnce();
       attachCopyHistoryHookOnce();
 
-      var ok = prefillReportOnce();
+      var ok = prefillReportOnce(payload);
       if(ok || tries >= maxTries){
         clearInterval(t);
         if(!ok){ showToast('Prefill ไม่เจอช่องใน Report.html (ปล่อยว่างไว้)'); }

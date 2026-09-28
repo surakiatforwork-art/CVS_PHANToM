@@ -2700,7 +2700,7 @@
     Promise.resolve(applyPrefill(msg.payload || {})).finally(() => {
       try{
         const targetOrigin = (location.origin && location.origin !== "null") ? location.origin : "*";
-        window.parent && window.parent.postMessage({ type: "PT_PREFILL_ACK", reportToken: String(msg.payload && msg.payload.reportToken || "") }, targetOrigin);
+        window.parent && window.parent.postMessage({ type: "PT_PREFILL_ACK", reportToken: String(msg.payload && msg.payload.reportToken || ""), prefillRequestId: Number(msg.payload && msg.payload.prefillRequestId) }, targetOrigin);
       } catch (err){}
     });
   });
