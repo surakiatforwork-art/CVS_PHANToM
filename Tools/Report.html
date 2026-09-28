@@ -713,6 +713,7 @@
   // Popup and the standalone page have different drafts, so opening a store report never clears the standalone draft.
   const STORE_FORM = EMBED ? "PT_REPORT_FORM_EMBED_V1" : "PT_REPORT_FORM_DIRECT_V2";
   const STORE_HISTORY = "PT_REPORT_HISTORY_V1";
+  const STORE_HISTORY_DELETED = "PT_REPORT_HISTORY_DELETED_V1";
   const STORE_UI = "PT_REPORT_UI_V1";
   const STORE_SKU_GLOBAL = "PT_REPORT_SKU_GLOBAL_V1";
   const SKU_GLOBAL_PRESET_VERSION = "2026-07-14-order-v2";
@@ -1074,6 +1075,7 @@
   const modalNo = $("modalNo");
 
   let history = [];
+  let deletedHistoryIds = new Set();
   let selectedIds = new Set();
   let showAllHistory = false;
   let modalOnYes = null;
@@ -1358,8 +1360,18 @@
     return out;
   }
 
+  function loadDeletedHistoryIds(){
+    const stored = loadJSON(STORE_HISTORY_DELETED, []);
+    return new Set(Array.isArray(stored) ? stored.map((id) => String(id)) : []);
+  }
+
+  function saveDeletedHistoryIds(){
+    saveJSON(STORE_HISTORY_DELETED, Array.from(deletedHistoryIds));
+  }
+
   function readStoredHistory(){
-    return compactHistoryList(loadJSON(STORE_HISTORY, []));
+    return compactHistoryList(loadJSON(STORE_HISTORY, []))
+      .filter((item) => !deletedHistoryIds.has(item.id));
   }
 
   function mergeHistoryLists(...lists){
@@ -1369,6 +1381,7 @@
       for (const raw of list){
         const item = normalizeHistoryEntry(raw);
         if (!item) continue;
+        if (deletedHistoryIds.has(item.id)) continue;
         all.push(item);
       }
     }
@@ -2149,7 +2162,7 @@
   }
 
   function saveHistory(showError = false){
-    history = compactHistoryList(history);
+    history = compactHistoryList(history).filter((item) => !deletedHistoryIds.has(item.id));
     const ok = saveJSON(STORE_HISTORY, history);
     if (!ok && showError){
       setStatus("err", "คัดลอกแล้ว แต่บันทึกประวัติลงเครื่องไม่สำเร็จ");
@@ -2184,6 +2197,8 @@
   }
 
   function deleteHistoryEntry(id){
+    deletedHistoryIds.add(String(id));
+    saveDeletedHistoryIds();
     history = history.filter((item) => item.id !== id);
     selectedIds.delete(id);
     saveHistory();
@@ -2194,6 +2209,8 @@
   function clearHistoryItems(items){
     const ids = new Set((items || []).map((item) => item.id));
     if (!ids.size) return;
+    ids.forEach((id) => deletedHistoryIds.add(String(id)));
+    saveDeletedHistoryIds();
     history = history.filter((item) => !ids.has(item.id));
     ids.forEach((id) => selectedIds.delete(id));
     saveHistory();
@@ -2544,16 +2561,15 @@
   });
 
   if (btnClearAll) btnClearAll.addEventListener("click", () => {
-    const list = getVisibleHistoryItems();
-    if (!list.length){
-      showToast("ไม่มีประวัติในมุมมองนี้ให้ล้าง");
+    const selectedItems = history.filter((item) => selectedIds.has(item.id));
+    if (!selectedItems.length){
+      showToast("เลือกรายการที่ต้องการลบก่อน");
       return;
     }
-    const scope = showAllHistory ? "ทั้งหมด" : "วันนี้";
     openConfirm(
-      `ยืนยันล้างประวัติ${scope}`,
-      `ต้องการล้างประวัติ${scope}ใช่ไหม?\n(จะลบ ${list.length} รายการ)`,
-      () => clearHistoryItems(list)
+      "ยืนยันล้างประวัติ",
+      `ต้องการลบประวัติที่เลือกไว้ใช่ไหม?\n(จะลบ ${selectedItems.length} รายการ)`,
+      () => clearHistoryItems(selectedItems)
     );
   });
 
@@ -2651,6 +2667,7 @@
   }
 
   function boot(){
+    deletedHistoryIds = loadDeletedHistoryIds();
     if (HISTORY_MODE){
       document.body.classList.add("history-only");
       loadHistory();
@@ -2696,6 +2713,14 @@
       setStatus("wait", "พร้อมใช้งาน");
     }
   }
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== STORE_HISTORY_DELETED) return;
+    deletedHistoryIds = loadDeletedHistoryIds();
+    history = history.filter((item) => !deletedHistoryIds.has(item.id));
+    if (pruneSelectedIds()) saveUIState();
+    if (!EMBED) renderHistory();
+  });
 
   boot();
 })();
