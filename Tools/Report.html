@@ -715,6 +715,7 @@
   const STORE_HISTORY = "PT_REPORT_HISTORY_V1";
   const STORE_HISTORY_DELETED = "PT_REPORT_HISTORY_DELETED_V1";
   const STORE_UI = "PT_REPORT_UI_V1";
+  const STORE_REPORT_CONFIG_CACHE = "PT_REPORT_CONFIG_CACHE_V1";
   const STORE_SKU_GLOBAL = "PT_REPORT_SKU_GLOBAL_V1";
   const SKU_GLOBAL_PRESET_VERSION = "2026-07-14-order-v2";
   const STORAGE_CACHE_PREFIX = "PT_GBKK_PLACES_CACHE_";
@@ -1550,6 +1551,64 @@
     });
   }
 
+  function reportConfigMetaJsonp(accountName){
+    return new Promise((resolve, reject) => {
+      const callback = `__ptReportConfigMeta_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const url = new URL(REPORT_CONFIG_API_URL);
+      url.searchParams.set("action", "getReportConfigMeta");
+      url.searchParams.set("account", accountName);
+      url.searchParams.set("callback", callback);
+      const script = document.createElement("script");
+      const timer = setTimeout(() => finish(new Error("หมดเวลารอสถานะ config รายงาน")), 15000);
+      function finish(error, value){
+        clearTimeout(timer);
+        delete window[callback];
+        script.remove();
+        error ? reject(error) : resolve(value);
+      }
+      window[callback] = (value) => finish(null, value);
+      script.onerror = () => finish(new Error("โหลดสถานะ config รายงานไม่สำเร็จ"));
+      script.src = url.toString();
+      document.head.appendChild(script);
+    });
+  }
+
+  function readReportConfigCache(accountName){
+    try{
+      const all = JSON.parse(sessionStorage.getItem(STORE_REPORT_CONFIG_CACHE) || "{}");
+      const cached = all[safeText(accountName).trim().toUpperCase()];
+      return cached && cached.result && Array.isArray(cached.result.items) ? cached : null;
+    }catch(_){
+      return null;
+    }
+  }
+
+  function writeReportConfigCache(accountName, result){
+    try{
+      const all = JSON.parse(sessionStorage.getItem(STORE_REPORT_CONFIG_CACHE) || "{}");
+      all[safeText(accountName).trim().toUpperCase()] = { version: result.version, result };
+      sessionStorage.setItem(STORE_REPORT_CONFIG_CACHE, JSON.stringify(all));
+    }catch(_){}
+  }
+
+  async function getLatestReportConfig(accountName){
+    const cached = readReportConfigCache(accountName);
+    try{
+      const meta = await reportConfigMetaJsonp(accountName);
+      if (!meta || !meta.ok) throw new Error((meta && meta.message) || "โหลดสถานะ config ไม่สำเร็จ");
+      if (cached && Number(cached.version) === Number(meta.version)){
+        return { result: cached.result, fromCache: true };
+      }
+      const result = await reportConfigJsonp(accountName);
+      if (!result || !result.ok) throw new Error((result && result.message) || "โหลด config ไม่สำเร็จ");
+      writeReportConfigCache(accountName, result);
+      return { result, fromCache: false };
+    }catch(error){
+      if (cached) return { result: cached.result, fromCache: true, offline: true };
+      throw error;
+    }
+  }
+
   function restoreBuiltinReportConfig(){
     SKU_ITEMS = JSON.parse(JSON.stringify(BUILTIN_REPORT_CONFIG.skuItems));
     SUMMARY_TOPICS = JSON.parse(JSON.stringify(BUILTIN_REPORT_CONFIG.summaryTopics));
@@ -1607,7 +1666,7 @@
     }
     if (reportConfigLoading && reportConfigLoadingAccount === normalized && !forceRefresh) return reportConfigLoading;
     const requestId = ++reportConfigRequestId;
-    reportConfigLoading = reportConfigJsonp(normalized).then((result) => {
+    reportConfigLoading = getLatestReportConfig(normalized).then(({ result, fromCache, offline }) => {
       if (requestId !== reportConfigRequestId) return false;
       restoreBuiltinReportConfig();
       if (!result || !result.ok) throw new Error((result && result.message) || "โหลด config ไม่สำเร็จ");
@@ -1616,7 +1675,7 @@
       loadGlobalSkuFlags(); applyGlobalFlagsToDom();
       applySkuChecksToDom(savedSkuChecks); applySummarySelectionsToDom(savedSummaries); applyPromotionMediaSelectionsToDom(savedPromotions);
       updatePreview();
-      setStatus("ok", "Config ออนไลน์พร้อม");
+      setStatus(offline ? "wait" : "ok", fromCache ? "Config ล่าสุดพร้อม" : "Config ออนไลน์พร้อม");
     }).catch(() => {
       if (requestId !== reportConfigRequestId) return false;
       restoreBuiltinReportConfig();

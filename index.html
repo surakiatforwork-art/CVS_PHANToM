@@ -2068,6 +2068,25 @@
     return await jsonpWithRetry(url, 60000, 1);
   }
 
+  function prewarmReportConfig_(accountName){
+    var accountKey = String(accountName || '').trim().toUpperCase();
+    if(!accountKey || REPORT_CONFIG_WARMING[accountKey]) return;
+    var url = apiUrl('getReportConfig', { account: accountKey });
+    if(!url) return;
+    REPORT_CONFIG_WARMING[accountKey] = true;
+    jsonp(url, 30000).then(function(result){
+      if(!result || !result.ok || !Array.isArray(result.items)) return;
+      try{
+        var storeKey = 'PT_REPORT_CONFIG_CACHE_V1';
+        var all = JSON.parse(sessionStorage.getItem(storeKey) || '{}');
+        all[accountKey] = { version: result.version, result: result };
+        sessionStorage.setItem(storeKey, JSON.stringify(all));
+      }catch(e){}
+    }).catch(function(){}).finally(function(){
+      delete REPORT_CONFIG_WARMING[accountKey];
+    });
+  }
+
   async function apiMarkVisited(id, sheetName){
     var params = { id:id };
     if(sheetName) params.sheet = sheetName;
@@ -3205,6 +3224,7 @@
   var REPORT_COPY_HOOKED = false;
   var REPORT_PREFILL_ACKED = false;
   var REPORT_OPEN_REQUEST_ID = 0;
+  var REPORT_CONFIG_WARMING = Object.create(null);
   var REPORT_NOTED_SAVE_WARNED = false;
   var WRITE_QUEUE = Promise.resolve();
   var PLACES_REVALIDATE_TIMER = null;
@@ -4161,6 +4181,7 @@
         closeButton:false,
         closeOnClick:true
       });
+      mk.on('popupopen', function(){ prewarmReportConfig_(p.account); });
       markerById.set(String(p.id), mk);
     });
 
