@@ -2908,6 +2908,8 @@
   async function navigateToPlace_(place){
     if(!place || !hasLatLng_(place)){ showToast('ร้านนี้ไม่มีพิกัดสำหรับนำทาง'); return; }
     if(!SETTINGS.showWebRoute || hasActiveRouteFor_(place) || (currentLatLng && haversineKm(currentLatLng, {lat:place.lat, lng:place.lng}) * 1000 <= 200)){
+      // A direct Maps launch for another store must not leave its old web route visible.
+      if(activeWebRoute && !hasActiveRouteFor_(place)) clearWebRoute_();
       openMaps(place);
       return;
     }
