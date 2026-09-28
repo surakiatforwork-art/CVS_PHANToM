@@ -6,10 +6,7 @@
   <title>GBKK Tracker</title>
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <style>
     :root{
@@ -2693,8 +2690,9 @@
 
   var map = null;
   var placesLayer = null;
-  // Set enabled to false to immediately restore the original all-marker rendering.
-  var MAP_MARKER_CLUSTERING = { enabled:true, showMarkersAtZoom:15 };
+  // Set enabled to false to restore the original all-marker rendering.
+  var MAP_VIEWPORT_MARKERS = { enabled:true, padding:0.25, focusZoom:16 };
+  var viewportMarkerTimer = null;
   var currentMarker = null;
   var currentLatLng = null;
   var meIcon = null;
@@ -2751,20 +2749,7 @@
         attribution: '&copy; OpenStreetMap'
       }).addTo(map);
 
-      if(MAP_MARKER_CLUSTERING.enabled && typeof L.markerClusterGroup === 'function'){
-        placesLayer = L.markerClusterGroup({
-          chunkedLoading:true,
-          chunkInterval:120,
-          chunkDelay:40,
-          removeOutsideVisibleBounds:true,
-          disableClusteringAtZoom:MAP_MARKER_CLUSTERING.showMarkersAtZoom,
-          showCoverageOnHover:false,
-          animate:true
-        });
-      }else{
-        placesLayer = L.layerGroup();
-      }
-      placesLayer.addTo(map);
+      placesLayer = L.layerGroup().addTo(map);
 
       meIcon = L.divIcon({
         className: 'me-icon',
@@ -2793,6 +2778,7 @@
           mapState.zoom = map.getZoom();
           saveMapStateSoon_();
         }catch(e){}
+        scheduleViewportMarkerRender_();
       });
 
       if(currentLatLng){
@@ -2911,14 +2897,16 @@
     return new Promise(function(resolve){
       setTimeout(function(){
         if(map) try{ map.invalidateSize(); }catch(e){}
+        if(map && hasLatLng_(place) && MAP_VIEWPORT_MARKERS.enabled){
+          try{
+            map.setView([Number(place.lat), Number(place.lng)], Math.max(map.getZoom(), MAP_VIEWPORT_MARKERS.focusZoom), { animate:false });
+          }catch(e){}
+        }
+        renderMap();
         var marker = markerById.get(String(place && place.id));
         if(marker){
           try{
-            if(placesLayer && typeof placesLayer.zoomToShowLayer === 'function'){
-              placesLayer.zoomToShowLayer(marker, function(){ marker.openPopup(); });
-            }else{
-              marker.openPopup();
-            }
+            marker.openPopup();
           }catch(e){}
         }
         resolve();
@@ -4207,7 +4195,15 @@
     placesLayer.clearLayers();
     markerById.clear();
 
-    var items = filteredPlaces(true).filter(hasLatLng_);
+    var allItems = filteredPlaces(true).filter(hasLatLng_);
+    var items = allItems;
+    if(MAP_VIEWPORT_MARKERS.enabled){
+      var bounds = map.getBounds();
+      if(bounds && bounds.isValid()){
+        bounds = bounds.pad(MAP_VIEWPORT_MARKERS.padding);
+        items = items.filter(function(place){ return bounds.contains([Number(place.lat), Number(place.lng)]); });
+      }
+    }
     var visitedIcon = new L.Icon.Default({ className: 'marker-visited' });
 
     items.forEach(function(p){
@@ -4254,7 +4250,7 @@
     if(!mapState.userInteracted && !mapState.autoFitted){
       var pts = [];
       if(currentLatLng) pts.push([currentLatLng.lat, currentLatLng.lng]);
-      items.forEach(function(p){ pts.push([p.lat, p.lng]); });
+      allItems.forEach(function(p){ pts.push([p.lat, p.lng]); });
       if(pts.length){
         try{ map.fitBounds(L.latLngBounds(pts).pad(0.15)); }catch(e){}
         mapState.autoFitted = true;
@@ -4272,6 +4268,12 @@
       }catch(e){}
       markerById.delete(id);
     }
+  }
+
+  function scheduleViewportMarkerRender_(){
+    if(!MAP_VIEWPORT_MARKERS.enabled || !map) return;
+    clearTimeout(viewportMarkerTimer);
+    viewportMarkerTimer = setTimeout(function(){ renderMap(); }, 100);
   }
 
   function cacheWrite_(payload, sheetName){
