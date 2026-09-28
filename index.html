@@ -633,6 +633,11 @@
       font-size:12px;
     }
     .map-actions .map-link:active{ transform:scale(.99); }
+    .map-open-google{
+      border-color:rgba(7,25,21,.16);
+      background:rgba(7,25,21,.05);
+      color:#071915;
+    }
     .map-edit-actions{
       display:flex;
       gap:6px;
@@ -1219,6 +1224,9 @@
       color:#3b6760;
       font-size:12px;
     }
+    .set-card + .set-card{margin-top:12px}
+    .set-check{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:1000;color:#071915}
+    .set-check input{width:20px;height:20px;accent-color:#0f8f83}
     .seg{
       display:flex;
       gap:10px;
@@ -1711,6 +1719,29 @@
           </label>
         </div>
       </div>
+      <div class="set-card">
+        <div class="set-h">
+          <strong>Google Maps</strong>
+          <small>เลือกว่าจะเปิด Google Maps ทันที หรือเปิดเองหลังดูเส้นทางบนเว็บ</small>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="การเปิด Google Maps">
+          <label>
+            <input type="radio" name="mapsOpenMode" value="auto">
+            <div class="seg-pill">เปิดอัตโนมัติ</div>
+          </label>
+          <label>
+            <input type="radio" name="mapsOpenMode" value="manual">
+            <div class="seg-pill">ให้กดเปิดเอง</div>
+          </label>
+        </div>
+      </div>
+      <div class="set-card">
+        <div class="set-h">
+          <strong>เส้นทางบนแผนที่</strong>
+          <small>คำนวณและแสดงเส้นจากตำแหน่งปัจจุบันไปยังร้านเมื่อกดนำทาง</small>
+        </div>
+        <label class="set-check"><input id="showWebRoute" type="checkbox"> แสดงเส้นทางบนเว็บ</label>
+      </div>
     </div>
 
     <div class="set-actions">
@@ -2175,14 +2206,15 @@
   var SETTINGS = loadSettings_();
 
   function loadSettings_(){
-    var def = { navPriority: 'linkFirst' };
+    var def = { navPriority: 'linkFirst', mapsOpenMode: 'auto', showWebRoute: true };
     try{
       var raw = localStorage.getItem(SETTINGS_KEY);
       if(!raw) return def;
       var obj = JSON.parse(raw);
       if(!obj || typeof obj !== 'object') return def;
       var v = (obj.navPriority === 'latLngFirst') ? 'latLngFirst' : 'linkFirst';
-      return { navPriority: v };
+      var mapsOpenMode = obj.mapsOpenMode === 'manual' ? 'manual' : 'auto';
+      return { navPriority: v, mapsOpenMode: mapsOpenMode, showWebRoute: obj.showWebRoute !== false };
     }catch(e){
       return def;
     }
@@ -2197,6 +2229,9 @@
     var v = (SETTINGS && SETTINGS.navPriority) ? SETTINGS.navPriority : 'linkFirst';
     var radios = document.querySelectorAll('input[name="navPriority"]');
     radios.forEach(function(r){ r.checked = (r.value === v); });
+    var mapsOpenMode = (SETTINGS && SETTINGS.mapsOpenMode) === 'manual' ? 'manual' : 'auto';
+    document.querySelectorAll('input[name="mapsOpenMode"]').forEach(function(r){ r.checked = (r.value === mapsOpenMode); });
+    $('showWebRoute').checked = !(SETTINGS && SETTINGS.showWebRoute === false);
 
     $('setOverlay').classList.add('show');
     $('setOverlay').setAttribute('aria-hidden','false');
@@ -2211,7 +2246,12 @@
     var sel = document.querySelector('input[name="navPriority"]:checked');
     var v = sel ? String(sel.value) : 'linkFirst';
     v = (v === 'latLngFirst') ? 'latLngFirst' : 'linkFirst';
-    saveSettings_({ navPriority: v });
+    var mapsSel = document.querySelector('input[name="mapsOpenMode"]:checked');
+    var mapsOpenMode = mapsSel && mapsSel.value === 'manual' ? 'manual' : 'auto';
+    var next = { navPriority: v, mapsOpenMode: mapsOpenMode, showWebRoute: $('showWebRoute').checked };
+    saveSettings_(next);
+    if(!next.showWebRoute) clearWebRoute_();
+    if(map) renderMap();
     closeSettings();
     showToast('บันทึกแล้ว ✅');
   }
@@ -2604,6 +2644,8 @@
   var currentMarker = null;
   var currentLatLng = null;
   var meIcon = null;
+  var routeLayer = null;
+  var routeRequest = null;
   var markerById = new Map();
   var routeEditPlace = null;
   var locationEditPlace = null;
@@ -2748,6 +2790,71 @@
     var url = getOpenLink(place);
     if(!url){ showToast('ไม่มีลิงก์นำทาง'); return; }
     window.open(url, '_blank');
+  }
+
+  function clearWebRoute_(){
+    if(routeRequest){ try{ routeRequest.abort(); }catch(e){} routeRequest = null; }
+    if(routeLayer && map){ try{ map.removeLayer(routeLayer); }catch(e){} }
+    routeLayer = null;
+  }
+
+  function showPlaceOnMap_(place){
+    if(location.hash !== '#map') location.hash = '#map';
+    else setPage('map');
+    return new Promise(function(resolve){
+      setTimeout(function(){
+        if(map) try{ map.invalidateSize(); }catch(e){}
+        var marker = markerById.get(String(place && place.id));
+        if(marker) try{ marker.openPopup(); }catch(e){}
+        resolve();
+      }, 120);
+    });
+  }
+
+  async function drawWebRoute_(place){
+    if(!map || !currentLatLng || !hasLatLng_(place)) return false;
+    clearWebRoute_();
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    routeRequest = controller;
+    var origin = currentLatLng.lng + ',' + currentLatLng.lat;
+    var destination = place.lng + ',' + place.lat;
+    var url = 'https://router.project-osrm.org/route/v1/driving/' + origin + ';' + destination + '?overview=full&geometries=geojson';
+    try{
+      showToast('กำลังคำนวณเส้นทาง…');
+      var response = await fetch(url, { signal: controller ? controller.signal : undefined });
+      var result = await response.json();
+      if(routeRequest !== controller || !result || result.code !== 'Ok' || !result.routes || !result.routes[0]) return false;
+      routeLayer = L.geoJSON(result.routes[0].geometry, { style:{ color:'#0f8f83', weight:6, opacity:.88, lineCap:'round', lineJoin:'round' } }).addTo(map);
+      var bounds = routeLayer.getBounds();
+      if(bounds && bounds.isValid()) map.fitBounds(bounds.pad(0.16), { animate:true, duration:.35 });
+      var route = result.routes[0];
+      showToast('เส้นทาง ' + (route.distance / 1000).toFixed(1) + ' กม. · ประมาณ ' + Math.max(1, Math.round(route.duration / 60)) + ' นาที');
+      return true;
+    }catch(e){
+      if(e && e.name === 'AbortError') return false;
+      console.warn('Route request failed', e);
+      showToast('ไม่สามารถคำนวณเส้นทางบนเว็บได้');
+      return false;
+    }finally{
+      if(routeRequest === controller) routeRequest = null;
+    }
+  }
+
+  async function navigateToPlace_(place){
+    if(!place || !hasLatLng_(place)){ showToast('ร้านนี้ไม่มีพิกัดสำหรับนำทาง'); return; }
+    // Open synchronously while this click still has user activation; otherwise mobile browsers can block it.
+    var autoOpenMaps = SETTINGS.mapsOpenMode === 'auto';
+    if(autoOpenMaps) openMaps(place);
+    await showPlaceOnMap_(place);
+    if(SETTINGS.showWebRoute){
+      if(!currentLatLng){
+        showToast('กำลังหาตำแหน่ง GPS ก่อนคำนวณเส้นทาง');
+        requestGPS();
+      }else{
+        await drawWebRoute_(place);
+      }
+    }
+    if(!autoOpenMaps) showToast(SETTINGS.showWebRoute ? 'ดูเส้นทางแล้ว · กด “เปิด Google Maps” เมื่อต้องการ' : 'กด “เปิด Google Maps” เมื่อต้องการ');
   }
 
   function editorPlaceLabel_(place){
@@ -3937,8 +4044,11 @@
       var link = getOpenLink(p);
 
       var navHtml = link
-        ? ('<a class="map-link" href="' + escapeHtml(link) + '" target="_blank" rel="noopener">นำทาง</a>')
+        ? ('<button class="map-link map-nav" type="button" data-id="' + escapeHtml(p.id) + '">นำทาง</button>')
         : ('<button class="map-link disabled" type="button" disabled>นำทาง</button>');
+      var openGoogleHtml = link && SETTINGS.mapsOpenMode === 'manual'
+        ? ('<button class="map-link map-open-google" type="button" data-id="' + escapeHtml(p.id) + '">เปิด Google Maps</button>')
+        : '';
 
       var reportHtml =
         '<button class="map-link map-report" type="button" data-id="' + escapeHtml(p.id) + '">Report</button>';
@@ -3962,7 +4072,9 @@
         '</div>' +
         '<div style="font-size:12px;color:#3b6760;margin-top:4px;">🗓️ ไปล่าสุด: ' + escapeHtml(lastTextMap) + '</div>' +
         (p.visited ? '<div style="font-size:12px;color:#64748b;margin-top:4px;font-weight:900;">ไปแล้ว</div>' : '') +
-        '<div class="map-actions">' + navHtml + reportHtml + doneHtml + '</div>' + editHtml +
+        '</div>';
+        '<div class="map-actions">' + navHtml + reportHtml + doneHtml + openGoogleHtml + '</div>' + editHtml +
+        '</div>';
         '</div>';
 
       var markerOptions = p.visited ? { icon: visitedIcon } : {};
@@ -4509,9 +4621,24 @@
 
     var act = btn.getAttribute('data-act');
 
-    if(act === 'nav'){ openMaps(place); return; }
+    if(act === 'nav'){ navigateToPlace_(place); return; }
     if(act === 'report'){ openReport(place); return; }
     if(act === 'done'){ confirmAndMarkVisited(place); return; }
+  }, true);
+
+  document.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('.map-nav, .map-open-google') : null;
+    if(!btn) return;
+
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    var id = btn.getAttribute('data-id');
+    var place = PLACES.find(function(x){ return String(x.id) === String(id); });
+    if(!place){ showToast('ไม่พบรายการสำหรับปุ่มนำทาง'); return; }
+
+    if(btn.classList.contains('map-open-google')) openMaps(place);
+    else navigateToPlace_(place);
   }, true);
 
   document.addEventListener('click', function(ev){
