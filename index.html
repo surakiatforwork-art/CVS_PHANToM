@@ -2068,23 +2068,57 @@
     return await jsonpWithRetry(url, 60000, 1);
   }
 
-  function prewarmReportConfig_(accountName){
+  function readReportConfigCache_(accountKey){
+    try{
+      var all = JSON.parse(localStorage.getItem('PT_REPORT_CONFIG_CACHE_V1') || '{}');
+      var cached = all[accountKey];
+      return cached && cached.result && Array.isArray(cached.result.items) ? cached : null;
+    }catch(e){
+      return null;
+    }
+  }
+
+  function writeReportConfigCache_(accountKey, result){
+    try{
+      var storeKey = 'PT_REPORT_CONFIG_CACHE_V1';
+      var all = JSON.parse(localStorage.getItem(storeKey) || '{}');
+      all[accountKey] = { version: result.version, result: result };
+      localStorage.setItem(storeKey, JSON.stringify(all));
+    }catch(e){}
+  }
+
+  // Marker popups only compare versions. The full catalog downloads once, when it changed.
+  function refreshReportConfigCache_(accountName){
     var accountKey = String(accountName || '').trim().toUpperCase();
-    if(!accountKey || REPORT_CONFIG_WARMING[accountKey]) return;
-    var url = apiUrl('getReportConfig', { account: accountKey });
-    if(!url) return;
-    REPORT_CONFIG_WARMING[accountKey] = true;
-    jsonp(url, 30000).then(function(result){
-      if(!result || !result.ok || !Array.isArray(result.items)) return;
-      try{
-        var storeKey = 'PT_REPORT_CONFIG_CACHE_V1';
-        var all = JSON.parse(sessionStorage.getItem(storeKey) || '{}');
-        all[accountKey] = { version: result.version, result: result };
-        sessionStorage.setItem(storeKey, JSON.stringify(all));
-      }catch(e){}
-    }).catch(function(){}).finally(function(){
+    if(!accountKey) return Promise.resolve({ version:null, verified:false, changed:false });
+    if(REPORT_CONFIG_WARMING[accountKey]) return REPORT_CONFIG_WARMING[accountKey];
+
+    var cached = readReportConfigCache_(accountKey);
+    var metaUrl = apiUrl('getReportConfigMeta', { account: accountKey });
+    if(!metaUrl) return Promise.resolve({ version: cached ? cached.version : null, verified:false, changed:false });
+
+    var work = jsonp(metaUrl, 15000).then(function(meta){
+      if(!meta || !meta.ok) throw new Error((meta && meta.message) || 'โหลดสถานะ config ไม่สำเร็จ');
+      if(cached && Number(cached.version) === Number(meta.version)){
+        return { version: meta.version, verified:true, changed:false };
+      }
+      var configUrl = apiUrl('getReportConfig', { account: accountKey });
+      if(!configUrl) throw new Error('ยังไม่ได้ตั้งค่า CONFIG.API_URL');
+      return jsonp(configUrl, 30000).then(function(result){
+        if(!result || !result.ok || !Array.isArray(result.items)){
+          throw new Error((result && result.message) || 'โหลด config รายงานไม่สำเร็จ');
+        }
+        writeReportConfigCache_(accountKey, result);
+        return { version: result.version, verified:true, changed:true };
+      });
+    }).catch(function(){
+      return { version: cached ? cached.version : null, verified:false, changed:false };
+    }).finally(function(){
       delete REPORT_CONFIG_WARMING[accountKey];
     });
+
+    REPORT_CONFIG_WARMING[accountKey] = work;
+    return work;
   }
 
   async function apiMarkVisited(id, sheetName){
@@ -3504,12 +3538,12 @@
     };
   }
 
-  function postReportPrefillMessage_(){
+  function postReportPrefillMessage_(payload){
     var win = getReportWin();
     if(!win) return false;
 
-    var payload = buildReportPrefillPayload_(REPORT_CTX);
-    payload.forceConfigRefresh = true;
+    payload = payload || buildReportPrefillPayload_(REPORT_CTX);
+    if(typeof payload.forceConfigRefresh === 'undefined') payload.forceConfigRefresh = true;
     var msg = { type:'PT_PREFILL', payload: payload };
     var targetOrigin = '*';
     try{
@@ -3536,6 +3570,7 @@
 
   function openReport(place){
     var openRequestId = ++REPORT_OPEN_REQUEST_ID;
+    var configRefresh = refreshReportConfigCache_(place && place.account);
     REPORT_CTX = place || null;
     REPORT_SESSION = buildReportSession_(place, CURRENT_SHEET);
     REPORT_PREFILL_ACKED = false;
@@ -3570,9 +3605,14 @@
       patchReportEmbedStorageOnce();
       attachCopyHistoryHookOnce();
       clearRestrictedFieldsOnce();
+      var configState = await configRefresh;
+      if(openRequestId !== REPORT_OPEN_REQUEST_ID) return;
       var win = getReportWin();
       var payload = buildReportPrefillPayload_(REPORT_CTX);
       payload.forceConfigRefresh = true;
+      if(configState && configState.verified && configState.version !== null){
+        payload.reportConfigVersion = configState.version;
+      }
       if(win && typeof win.__PT_APPLY_PREFILL === 'function'){
         try{
           await win.__PT_APPLY_PREFILL(payload);
@@ -3583,7 +3623,7 @@
         }catch(e){}
       }
       if(openRequestId !== REPORT_OPEN_REQUEST_ID) return;
-      postReportPrefillMessage_();
+      postReportPrefillMessage_(payload);
       startPrefillLoop();
     }
 
@@ -4181,7 +4221,7 @@
         closeButton:false,
         closeOnClick:true
       });
-      mk.on('popupopen', function(){ prewarmReportConfig_(p.account); });
+      mk.on('popupopen', function(){ refreshReportConfigCache_(p.account); });
       markerById.set(String(p.id), mk);
     });
 

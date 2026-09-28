@@ -1575,7 +1575,7 @@
 
   function readReportConfigCache(accountName){
     try{
-      const all = JSON.parse(sessionStorage.getItem(STORE_REPORT_CONFIG_CACHE) || "{}");
+      const all = JSON.parse(localStorage.getItem(STORE_REPORT_CONFIG_CACHE) || "{}");
       const cached = all[safeText(accountName).trim().toUpperCase()];
       return cached && cached.result && Array.isArray(cached.result.items) ? cached : null;
     }catch(_){
@@ -1585,14 +1585,17 @@
 
   function writeReportConfigCache(accountName, result){
     try{
-      const all = JSON.parse(sessionStorage.getItem(STORE_REPORT_CONFIG_CACHE) || "{}");
+      const all = JSON.parse(localStorage.getItem(STORE_REPORT_CONFIG_CACHE) || "{}");
       all[safeText(accountName).trim().toUpperCase()] = { version: result.version, result };
-      sessionStorage.setItem(STORE_REPORT_CONFIG_CACHE, JSON.stringify(all));
+      localStorage.setItem(STORE_REPORT_CONFIG_CACHE, JSON.stringify(all));
     }catch(_){}
   }
 
-  async function getLatestReportConfig(accountName){
+  async function getLatestReportConfig(accountName, verifiedVersion = null){
     const cached = readReportConfigCache(accountName);
+    if (cached && verifiedVersion !== null && Number(cached.version) === Number(verifiedVersion)){
+      return { result: cached.result, fromCache: true };
+    }
     try{
       const meta = await reportConfigMetaJsonp(accountName);
       if (!meta || !meta.ok) throw new Error((meta && meta.message) || "โหลดสถานะ config ไม่สำเร็จ");
@@ -1654,7 +1657,7 @@
     return true;
   }
 
-  async function loadOnlineReportConfig(accountName = account.value, forceRefresh = false, preservedState = null){
+  async function loadOnlineReportConfig(accountName = account.value, forceRefresh = false, preservedState = null, verifiedVersion = null){
     const normalized = safeText(accountName).trim();
     const savedSkuChecks = preservedState ? (preservedState.skuChecks || {}) : collectSkuChecksFromDom();
     const savedSummaries = preservedState ? (preservedState.summarySelections || {}) : collectSummarySelectionsFromDom();
@@ -1666,7 +1669,7 @@
     }
     if (reportConfigLoading && reportConfigLoadingAccount === normalized && !forceRefresh) return reportConfigLoading;
     const requestId = ++reportConfigRequestId;
-    reportConfigLoading = getLatestReportConfig(normalized).then(({ result, fromCache, offline }) => {
+    reportConfigLoading = getLatestReportConfig(normalized, verifiedVersion).then(({ result, fromCache, offline }) => {
       if (requestId !== reportConfigRequestId) return false;
       restoreBuiltinReportConfig();
       if (!result || !result.ok) throw new Error((result && result.message) || "โหลด config ไม่สำเร็จ");
@@ -2679,7 +2682,7 @@
       skuChecks: noted.skuChecks || {},
       summarySelections: noted.summarySelections || {},
       promotionMediaSelections: noted.promotionMediaSelections || {}
-    });
+    }, payload.reportConfigVersion ?? null);
     setStatus("wait", "Prefill แล้ว (Popup)");
   }
 
