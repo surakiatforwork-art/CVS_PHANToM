@@ -633,11 +633,6 @@
       font-size:12px;
     }
     .map-actions .map-link:active{ transform:scale(.99); }
-    .map-open-google{
-      border-color:rgba(7,25,21,.16);
-      background:rgba(7,25,21,.05);
-      color:#071915;
-    }
     .map-edit-actions{
       display:flex;
       gap:6px;
@@ -1721,22 +1716,6 @@
       </div>
       <div class="set-card">
         <div class="set-h">
-          <strong>Google Maps</strong>
-          <small>เลือกว่าจะเปิด Google Maps ทันที หรือเปิดเองหลังดูเส้นทางบนเว็บ</small>
-        </div>
-        <div class="seg" role="radiogroup" aria-label="การเปิด Google Maps">
-          <label>
-            <input type="radio" name="mapsOpenMode" value="auto">
-            <div class="seg-pill">เปิดอัตโนมัติ</div>
-          </label>
-          <label>
-            <input type="radio" name="mapsOpenMode" value="manual">
-            <div class="seg-pill">ให้กดเปิดเอง</div>
-          </label>
-        </div>
-      </div>
-      <div class="set-card">
-        <div class="set-h">
           <strong>เส้นทางบนแผนที่</strong>
           <small>คำนวณและแสดงเส้นจากตำแหน่งปัจจุบันไปยังร้านเมื่อกดนำทาง</small>
         </div>
@@ -2222,16 +2201,15 @@
   var SETTINGS = loadSettings_();
 
   function loadSettings_(){
-    var def = { navPriority: 'linkFirst', mapsOpenMode: 'auto', showWebRoute: true, gpsMode: 'normal' };
+    var def = { navPriority: 'linkFirst', showWebRoute: true, gpsMode: 'normal' };
     try{
       var raw = localStorage.getItem(SETTINGS_KEY);
       if(!raw) return def;
       var obj = JSON.parse(raw);
       if(!obj || typeof obj !== 'object') return def;
       var v = (obj.navPriority === 'latLngFirst') ? 'latLngFirst' : 'linkFirst';
-      var mapsOpenMode = obj.mapsOpenMode === 'manual' ? 'manual' : 'auto';
       var gpsMode = obj.gpsMode === 'realtime' ? 'realtime' : 'normal';
-      return { navPriority: v, mapsOpenMode: mapsOpenMode, showWebRoute: obj.showWebRoute !== false, gpsMode: gpsMode };
+      return { navPriority: v, showWebRoute: obj.showWebRoute !== false, gpsMode: gpsMode };
     }catch(e){
       return def;
     }
@@ -2246,8 +2224,6 @@
     var v = (SETTINGS && SETTINGS.navPriority) ? SETTINGS.navPriority : 'linkFirst';
     var radios = document.querySelectorAll('input[name="navPriority"]');
     radios.forEach(function(r){ r.checked = (r.value === v); });
-    var mapsOpenMode = (SETTINGS && SETTINGS.mapsOpenMode) === 'manual' ? 'manual' : 'auto';
-    document.querySelectorAll('input[name="mapsOpenMode"]').forEach(function(r){ r.checked = (r.value === mapsOpenMode); });
     $('showWebRoute').checked = !(SETTINGS && SETTINGS.showWebRoute === false);
     var gpsMode = (SETTINGS && SETTINGS.gpsMode) === 'realtime' ? 'realtime' : 'normal';
     document.querySelectorAll('input[name="gpsMode"]').forEach(function(r){ r.checked = (r.value === gpsMode); });
@@ -2265,11 +2241,9 @@
     var sel = document.querySelector('input[name="navPriority"]:checked');
     var v = sel ? String(sel.value) : 'linkFirst';
     v = (v === 'latLngFirst') ? 'latLngFirst' : 'linkFirst';
-    var mapsSel = document.querySelector('input[name="mapsOpenMode"]:checked');
-    var mapsOpenMode = mapsSel && mapsSel.value === 'manual' ? 'manual' : 'auto';
     var gpsSel = document.querySelector('input[name="gpsMode"]:checked');
     var gpsMode = gpsSel && gpsSel.value === 'realtime' ? 'realtime' : 'normal';
-    var next = { navPriority: v, mapsOpenMode: mapsOpenMode, showWebRoute: $('showWebRoute').checked, gpsMode: gpsMode };
+    var next = { navPriority: v, showWebRoute: $('showWebRoute').checked, gpsMode: gpsMode };
     saveSettings_(next);
     if(!next.showWebRoute) clearWebRoute_();
     if(map) renderMap();
@@ -2846,6 +2820,18 @@
     clearTimeout(routeRefreshTimer);
     routeArrivalTimer = null;
     routeRefreshTimer = null;
+    updateMapNavigationButtons_();
+  }
+
+  function hasActiveRouteFor_(place){
+    return !!(routeLayer && activeWebRoute && place && String(activeWebRoute.place && activeWebRoute.place.id) === String(place.id));
+  }
+
+  function updateMapNavigationButtons_(){
+    document.querySelectorAll('.map-nav[data-id]').forEach(function(button){
+      var place = PLACES.find(function(item){ return String(item.id) === String(button.getAttribute('data-id')); });
+      button.textContent = hasActiveRouteFor_(place) ? 'เปิด Maps' : 'นำทาง';
+    });
   }
 
   function showPlaceOnMap_(place){
@@ -2878,6 +2864,7 @@
       if(routeRequest !== controller || activeWebRoute !== routeState || !result || result.code !== 'Ok' || !result.routes || !result.routes[0]) return false;
       if(routeLayer){ try{ map.removeLayer(routeLayer); }catch(e){} routeLayer = null; }
       routeLayer = L.geoJSON(result.routes[0].geometry, { style:{ color:'#0f8f83', weight:6, opacity:.88, lineCap:'round', lineJoin:'round' } }).addTo(map);
+      updateMapNavigationButtons_();
       var bounds = routeLayer.getBounds();
       if(!isRefresh && bounds && bounds.isValid()) map.fitBounds(bounds.pad(0.16), { animate:true, duration:.35 });
       var route = result.routes[0];
@@ -2920,19 +2907,17 @@
 
   async function navigateToPlace_(place){
     if(!place || !hasLatLng_(place)){ showToast('ร้านนี้ไม่มีพิกัดสำหรับนำทาง'); return; }
-    // Open synchronously while this click still has user activation; otherwise mobile browsers can block it.
-    var autoOpenMaps = SETTINGS.mapsOpenMode === 'auto';
-    if(autoOpenMaps) openMaps(place);
-    await showPlaceOnMap_(place);
-    if(SETTINGS.showWebRoute){
-      if(!currentLatLng){
-        showToast('กำลังหาตำแหน่ง GPS ก่อนคำนวณเส้นทาง');
-        requestGPS();
-      }else{
-        await drawWebRoute_(place);
-      }
+    if(!SETTINGS.showWebRoute || hasActiveRouteFor_(place) || (currentLatLng && haversineKm(currentLatLng, {lat:place.lat, lng:place.lng}) * 1000 <= 200)){
+      openMaps(place);
+      return;
     }
-    if(!autoOpenMaps) showToast(SETTINGS.showWebRoute ? 'ดูเส้นทางแล้ว · กด “เปิด Google Maps” เมื่อต้องการ' : 'กด “เปิด Google Maps” เมื่อต้องการ');
+    await showPlaceOnMap_(place);
+    if(!currentLatLng){
+      showToast('กำลังหาตำแหน่ง GPS ก่อนคำนวณเส้นทาง');
+      requestGPS();
+    }else{
+      await drawWebRoute_(place);
+    }
   }
 
   function editorPlaceLabel_(place){
@@ -4122,11 +4107,8 @@
       var link = getOpenLink(p);
 
       var navHtml = link
-        ? ('<button class="map-link map-nav" type="button" data-id="' + escapeHtml(p.id) + '">นำทาง</button>')
+        ? ('<button class="map-link map-nav" type="button" data-id="' + escapeHtml(p.id) + '">' + (hasActiveRouteFor_(p) ? 'เปิด Maps' : 'นำทาง') + '</button>')
         : ('<button class="map-link disabled" type="button" disabled>นำทาง</button>');
-      var openGoogleHtml = link && SETTINGS.mapsOpenMode === 'manual'
-        ? ('<button class="map-link map-open-google" type="button" data-id="' + escapeHtml(p.id) + '">เปิด Google Maps</button>')
-        : '';
 
       var reportHtml =
         '<button class="map-link map-report" type="button" data-id="' + escapeHtml(p.id) + '">Report</button>';
@@ -4150,7 +4132,7 @@
         '</div>' +
         '<div style="font-size:12px;color:#3b6760;margin-top:4px;">🗓️ ไปล่าสุด: ' + escapeHtml(lastTextMap) + '</div>' +
         (p.visited ? '<div style="font-size:12px;color:#64748b;margin-top:4px;font-weight:900;">ไปแล้ว</div>' : '') +
-        '<div class="map-actions">' + navHtml + reportHtml + doneHtml + openGoogleHtml + '</div>' + editHtml +
+        '<div class="map-actions">' + navHtml + reportHtml + doneHtml + '</div>' + editHtml +
         '</div>';
 
       var markerOptions = p.visited ? { icon: visitedIcon } : {};
@@ -4703,7 +4685,7 @@
   }, true);
 
   document.addEventListener('click', function(ev){
-    var btn = ev.target && ev.target.closest ? ev.target.closest('.map-nav, .map-open-google') : null;
+    var btn = ev.target && ev.target.closest ? ev.target.closest('.map-nav') : null;
     if(!btn) return;
 
     ev.preventDefault();
@@ -4713,8 +4695,7 @@
     var place = PLACES.find(function(x){ return String(x.id) === String(id); });
     if(!place){ showToast('ไม่พบรายการสำหรับปุ่มนำทาง'); return; }
 
-    if(btn.classList.contains('map-open-google')) openMaps(place);
-    else navigateToPlace_(place);
+    navigateToPlace_(place);
   }, true);
 
   document.addEventListener('click', function(ev){
