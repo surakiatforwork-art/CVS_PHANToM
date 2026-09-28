@@ -1014,6 +1014,8 @@
     defaultFlags: JSON.parse(JSON.stringify(DEFAULT_SKU_GLOBAL_FLAGS))
   };
   let reportConfigLoading = null;
+  let reportConfigLoadingAccount = "";
+  let reportConfigRequestId = 0;
 
   function getLineUrlByAccount(accountValue){
     const a = (accountValue || "").trim().toUpperCase();
@@ -1575,11 +1577,14 @@
 
   async function loadOnlineReportConfig(accountName = account.value){
     const normalized = safeText(accountName).trim();
-    if (!normalized || reportConfigLoading) return reportConfigLoading;
+    if (!normalized) return null;
+    if (reportConfigLoading && reportConfigLoadingAccount === normalized) return reportConfigLoading;
+    const requestId = ++reportConfigRequestId;
     const skuChecks = collectSkuChecksFromDom();
     const summaries = collectSummarySelectionsFromDom();
     const promotions = collectPromotionMediaSelectionsFromDom();
     reportConfigLoading = reportConfigJsonp(normalized).then((result) => {
+      if (requestId !== reportConfigRequestId) return false;
       restoreBuiltinReportConfig();
       if (!result || !result.ok) throw new Error((result && result.message) || "โหลด config ไม่สำเร็จ");
       applyRemoteReportConfig(normalized, result.items);
@@ -1589,13 +1594,20 @@
       updatePreview();
       setStatus("ok", "Config ออนไลน์พร้อม");
     }).catch(() => {
+      if (requestId !== reportConfigRequestId) return false;
       restoreBuiltinReportConfig();
       renderSummaryTopics(); renderPromotionMedia(); renderSkuLists();
       loadGlobalSkuFlags(); applyGlobalFlagsToDom();
       applySkuChecksToDom(skuChecks); applySummarySelectionsToDom(summaries); applyPromotionMediaSelectionsToDom(promotions);
       updatePreview();
       setStatus("wait", "ใช้ config ในเครื่อง");
-    }).finally(() => { reportConfigLoading = null; });
+    }).finally(() => {
+      if (requestId === reportConfigRequestId){
+        reportConfigLoading = null;
+        reportConfigLoadingAccount = "";
+      }
+    });
+    reportConfigLoadingAccount = normalized;
     return reportConfigLoading;
   }
 
@@ -2560,7 +2572,7 @@
     );
   });
 
-  function applyPrefill(payload){
+  async function applyPrefill(payload){
     payload = payload || {};
     const own = (k) => Object.prototype.hasOwnProperty.call(payload, k);
     const noted = normalizeNotedState((payload.noted && typeof payload.noted === "object") ? payload.noted : payload);
@@ -2580,7 +2592,7 @@
     applySummarySelectionsToDom(noted.summarySelections || {});
     applyPromotionMediaSelectionsToDom(noted.promotionMediaSelections || {});
     updatePreview();
-    loadOnlineReportConfig(account.value);
+    await loadOnlineReportConfig(account.value);
     setStatus("wait", "Prefill แล้ว (Popup)");
   }
 
@@ -2594,11 +2606,12 @@
       if (location.origin && e.origin && e.origin !== location.origin) return;
     } catch (err){}
 
-    applyPrefill(msg.payload || {});
-    try{
-      const targetOrigin = (location.origin && location.origin !== "null") ? location.origin : "*";
-      window.parent && window.parent.postMessage({ type: "PT_PREFILL_ACK" }, targetOrigin);
-    } catch (err){}
+    Promise.resolve(applyPrefill(msg.payload || {})).finally(() => {
+      try{
+        const targetOrigin = (location.origin && location.origin !== "null") ? location.origin : "*";
+        window.parent && window.parent.postMessage({ type: "PT_PREFILL_ACK" }, targetOrigin);
+      } catch (err){}
+    });
   });
 
   function applyEmbedModeUI(){
