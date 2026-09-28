@@ -6,7 +6,10 @@
   <title>GBKK Tracker</title>
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <style>
     :root{
@@ -2690,6 +2693,8 @@
 
   var map = null;
   var placesLayer = null;
+  // Set enabled to false to immediately restore the original all-marker rendering.
+  var MAP_MARKER_CLUSTERING = { enabled:true, showMarkersAtZoom:15 };
   var currentMarker = null;
   var currentLatLng = null;
   var meIcon = null;
@@ -2746,7 +2751,20 @@
         attribution: '&copy; OpenStreetMap'
       }).addTo(map);
 
-      placesLayer = L.layerGroup().addTo(map);
+      if(MAP_MARKER_CLUSTERING.enabled && typeof L.markerClusterGroup === 'function'){
+        placesLayer = L.markerClusterGroup({
+          chunkedLoading:true,
+          chunkInterval:120,
+          chunkDelay:40,
+          removeOutsideVisibleBounds:true,
+          disableClusteringAtZoom:MAP_MARKER_CLUSTERING.showMarkersAtZoom,
+          showCoverageOnHover:false,
+          animate:true
+        });
+      }else{
+        placesLayer = L.layerGroup();
+      }
+      placesLayer.addTo(map);
 
       meIcon = L.divIcon({
         className: 'me-icon',
@@ -2894,7 +2912,15 @@
       setTimeout(function(){
         if(map) try{ map.invalidateSize(); }catch(e){}
         var marker = markerById.get(String(place && place.id));
-        if(marker) try{ marker.openPopup(); }catch(e){}
+        if(marker){
+          try{
+            if(placesLayer && typeof placesLayer.zoomToShowLayer === 'function'){
+              placesLayer.zoomToShowLayer(marker, function(){ marker.openPopup(); });
+            }else{
+              marker.openPopup();
+            }
+          }catch(e){}
+        }
         resolve();
       }, 120);
     });
@@ -4240,7 +4266,10 @@
     id = String(id);
     var mk = markerById.get(id);
     if(mk){
-      try{ mk.remove(); }catch(e){}
+      try{
+        if(placesLayer && typeof placesLayer.removeLayer === 'function') placesLayer.removeLayer(mk);
+        else mk.remove();
+      }catch(e){}
       markerById.delete(id);
     }
   }
