@@ -2690,8 +2690,10 @@
 
   var map = null;
   var placesLayer = null;
-  // Set enabled to false to restore the original all-marker rendering.
-  var MAP_VIEWPORT_MARKERS = { enabled:true, padding:0.25, focusZoom:16 };
+  var placesCanvasRenderer = null;
+  // Change mode to 'dom' to restore the original pin markers without changing data logic.
+  var MAP_MARKER_RENDERER = { mode:'canvas' };
+  var MAP_VIEWPORT_MARKERS = { enabled:false, padding:0.25, focusZoom:16 };
   var viewportMarkerTimer = null;
   var currentMarker = null;
   var currentLatLng = null;
@@ -2750,6 +2752,9 @@
       }).addTo(map);
 
       placesLayer = L.layerGroup().addTo(map);
+      if(MAP_MARKER_RENDERER.mode === 'canvas'){
+        placesCanvasRenderer = L.canvas({ padding:0.5 });
+      }
 
       meIcon = L.divIcon({
         className: 'me-icon',
@@ -4204,8 +4209,6 @@
         items = items.filter(function(place){ return bounds.contains([Number(place.lat), Number(place.lng)]); });
       }
     }
-    var visitedIcon = new L.Icon.Default({ className: 'marker-visited' });
-
     items.forEach(function(p){
       var link = getOpenLink(p);
 
@@ -4238,8 +4241,21 @@
         '<div class="map-actions">' + navHtml + reportHtml + doneHtml + '</div>' + editHtml +
         '</div>';
 
-      var markerOptions = p.visited ? { icon: visitedIcon } : {};
-      var mk = L.marker([p.lat, p.lng], markerOptions).addTo(placesLayer).bindPopup(popup, {
+      var markerOptions = MAP_MARKER_RENDERER.mode === 'canvas'
+        ? {
+          renderer: placesCanvasRenderer,
+          radius: p.visited ? 8 : 9,
+          color: p.visited ? '#64748b' : '#1677d2',
+          weight: 3,
+          opacity: .96,
+          fillColor: p.visited ? '#94a3b8' : '#2f8df4',
+          fillOpacity: .94
+        }
+        : (p.visited ? { icon: new L.Icon.Default({ className: 'marker-visited' }) } : {});
+      var mk = MAP_MARKER_RENDERER.mode === 'canvas'
+        ? L.circleMarker([p.lat, p.lng], markerOptions)
+        : L.marker([p.lat, p.lng], markerOptions);
+      mk.addTo(placesLayer).bindPopup(popup, {
         closeButton:false,
         closeOnClick:true
       });
