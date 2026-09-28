@@ -1595,14 +1595,18 @@
     return true;
   }
 
-  async function loadOnlineReportConfig(accountName = account.value){
+  async function loadOnlineReportConfig(accountName = account.value, forceRefresh = false, preservedState = null){
     const normalized = safeText(accountName).trim();
-    if (!normalized) return null;
-    if (reportConfigLoading && reportConfigLoadingAccount === normalized) return reportConfigLoading;
+    const savedSkuChecks = preservedState ? (preservedState.skuChecks || {}) : collectSkuChecksFromDom();
+    const savedSummaries = preservedState ? (preservedState.summarySelections || {}) : collectSummarySelectionsFromDom();
+    const savedPromotions = preservedState ? (preservedState.promotionMediaSelections || {}) : collectPromotionMediaSelectionsFromDom();
+    if (!normalized){
+      applySkuChecksToDom(savedSkuChecks); applySummarySelectionsToDom(savedSummaries); applyPromotionMediaSelectionsToDom(savedPromotions);
+      updatePreview();
+      return null;
+    }
+    if (reportConfigLoading && reportConfigLoadingAccount === normalized && !forceRefresh) return reportConfigLoading;
     const requestId = ++reportConfigRequestId;
-    const skuChecks = collectSkuChecksFromDom();
-    const summaries = collectSummarySelectionsFromDom();
-    const promotions = collectPromotionMediaSelectionsFromDom();
     reportConfigLoading = reportConfigJsonp(normalized).then((result) => {
       if (requestId !== reportConfigRequestId) return false;
       restoreBuiltinReportConfig();
@@ -1610,7 +1614,7 @@
       applyRemoteReportConfig(normalized, result.items);
       renderSummaryTopics(); renderPromotionMedia(); renderSkuLists();
       loadGlobalSkuFlags(); applyGlobalFlagsToDom();
-      applySkuChecksToDom(skuChecks); applySummarySelectionsToDom(summaries); applyPromotionMediaSelectionsToDom(promotions);
+      applySkuChecksToDom(savedSkuChecks); applySummarySelectionsToDom(savedSummaries); applyPromotionMediaSelectionsToDom(savedPromotions);
       updatePreview();
       setStatus("ok", "Config ออนไลน์พร้อม");
     }).catch(() => {
@@ -1618,7 +1622,7 @@
       restoreBuiltinReportConfig();
       renderSummaryTopics(); renderPromotionMedia(); renderSkuLists();
       loadGlobalSkuFlags(); applyGlobalFlagsToDom();
-      applySkuChecksToDom(skuChecks); applySummarySelectionsToDom(summaries); applyPromotionMediaSelectionsToDom(promotions);
+      applySkuChecksToDom(savedSkuChecks); applySummarySelectionsToDom(savedSummaries); applyPromotionMediaSelectionsToDom(savedPromotions);
       updatePreview();
       setStatus("wait", "ใช้ config ในเครื่อง");
     }).finally(() => {
@@ -2611,11 +2615,12 @@
     locationArea.value = noted.locationArea || "";
     issue.value = issueValueOrDefault(noted.issue);
     note.value = noteValueOrDefault(noted.note);
-    applySkuChecksToDom(noted.skuChecks || {});
-    applySummarySelectionsToDom(noted.summarySelections || {});
-    applyPromotionMediaSelectionsToDom(noted.promotionMediaSelections || {});
     updatePreview();
-    await loadOnlineReportConfig(account.value);
+    await loadOnlineReportConfig(account.value, !!payload.forceConfigRefresh, {
+      skuChecks: noted.skuChecks || {},
+      summarySelections: noted.summarySelections || {},
+      promotionMediaSelections: noted.promotionMediaSelections || {}
+    });
     setStatus("wait", "Prefill แล้ว (Popup)");
   }
 
@@ -2632,7 +2637,7 @@
     Promise.resolve(applyPrefill(msg.payload || {})).finally(() => {
       try{
         const targetOrigin = (location.origin && location.origin !== "null") ? location.origin : "*";
-        window.parent && window.parent.postMessage({ type: "PT_PREFILL_ACK" }, targetOrigin);
+        window.parent && window.parent.postMessage({ type: "PT_PREFILL_ACK", reportToken: String(msg.payload && msg.payload.reportToken || "") }, targetOrigin);
       } catch (err){}
     });
   });

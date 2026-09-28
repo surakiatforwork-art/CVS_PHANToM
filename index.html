@@ -3204,6 +3204,7 @@
   var REPORT_EMBED_PATCHED = false;
   var REPORT_COPY_HOOKED = false;
   var REPORT_PREFILL_ACKED = false;
+  var REPORT_OPEN_REQUEST_ID = 0;
   var REPORT_NOTED_SAVE_WARNED = false;
   var WRITE_QUEUE = Promise.resolve();
   var PLACES_REVALIDATE_TIMER = null;
@@ -3487,7 +3488,9 @@
     var win = getReportWin();
     if(!win) return false;
 
-    var msg = { type:'PT_PREFILL', payload: buildReportPrefillPayload_(REPORT_CTX) };
+    var payload = buildReportPrefillPayload_(REPORT_CTX);
+    payload.forceConfigRefresh = true;
+    var msg = { type:'PT_PREFILL', payload: payload };
     var targetOrigin = '*';
     try{
       if(location.origin && location.origin !== 'null') targetOrigin = location.origin;
@@ -3512,6 +3515,7 @@
   }
 
   function openReport(place){
+    var openRequestId = ++REPORT_OPEN_REQUEST_ID;
     REPORT_CTX = place || null;
     REPORT_SESSION = buildReportSession_(place, CURRENT_SHEET);
     REPORT_PREFILL_ACKED = false;
@@ -3540,15 +3544,27 @@
     var curOk = false;
     try{ curOk = !!curAbs && curAbs.indexOf('about:blank') !== 0 && curAbs.indexOf(targetAbs) === 0; }catch(e){ curOk = false; }
 
-    function afterFrameReady(){
+    async function afterFrameReady(){
       REPORT_FRAME_READY = true;
       tryTrimReportUI();
       patchReportEmbedStorageOnce();
       attachCopyHistoryHookOnce();
       clearRestrictedFieldsOnce();
+      var win = getReportWin();
+      var payload = buildReportPrefillPayload_(REPORT_CTX);
+      payload.forceConfigRefresh = true;
+      if(win && typeof win.__PT_APPLY_PREFILL === 'function'){
+        try{
+          await win.__PT_APPLY_PREFILL(payload);
+          if(openRequestId !== REPORT_OPEN_REQUEST_ID) return;
+          REPORT_PREFILL_ACKED = true;
+          setReportOverlayLoading_('repOverlay', false);
+          return;
+        }catch(e){}
+      }
+      if(openRequestId !== REPORT_OPEN_REQUEST_ID) return;
       postReportPrefillMessage_();
       startPrefillLoop();
-      setReportOverlayLoading_('repOverlay', false);
     }
 
     if(!curOk){
@@ -3647,7 +3663,10 @@
     }catch(e){}
 
     if(msg.type === 'PT_PREFILL_ACK'){
+      var activeToken = REPORT_SESSION && REPORT_SESSION.token ? String(REPORT_SESSION.token) : '';
+      if(msg.reportToken && activeToken && String(msg.reportToken) !== activeToken) return;
       REPORT_PREFILL_ACKED = true;
+      setReportOverlayLoading_('repOverlay', false);
       return;
     }
 
