@@ -823,6 +823,8 @@
     .brand .title{color:var(--text)}
     .iconBtn,.camToggle,.actionBtn,.switch,.pill,.dtInput{background:rgba(16,34,30,.62);border-color:var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
     .iconBtn:hover,.actionBtn:hover,.camToggle:hover{background:rgba(36,196,163,.14);border-color:rgba(100,230,203,.42)}
+    .appLaunchBtn{height:var(--iconBtn);display:inline-flex;align-items:center;gap:7px;padding:0 12px;border-radius:8px;border:1px solid rgba(100,230,203,.48);background:rgba(36,196,163,.15);color:var(--accent-bright);font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+    .appLaunchBtn svg{width:18px;height:18px}.appLaunchBtn:hover{background:rgba(36,196,163,.24)}.appLaunchBtn:active{transform:translateY(1px)}
     .camToggle .track{background:rgba(244,255,252,.045);border-color:rgba(180,241,226,.12)}
     .camToggle .knob{background:rgba(7,21,18,.64);border-color:rgba(180,241,226,.18);box-shadow:0 5px 18px rgba(0,0,0,.25)}
     .camToggle.on .knob{background:rgba(36,196,163,.24);border-color:rgba(100,230,203,.58)}
@@ -903,6 +905,11 @@
 
         <button class="iconBtn" id="btnDownloadAll" title="Download All" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v2H5v-2zM12 2l5.5 5.5-1.4 1.4L13 5.8V16h-2V5.8L7.9 8.9 6.5 7.5 12 2z"/></svg>
+        </button>
+
+        <button class="appLaunchBtn" id="btnOpenNative" type="button" title="เปิด Timestamp Cam">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h10c1.1 0 2 .9 2 2v16c0 1.1-.9 2-2 2H7c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2zm5 18.2a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zM8 5v10h8V5H8z"/></svg>
+          <span>เปิดแอป</span>
         </button>
 
         <button class="iconBtn" id="btnSettings" title="Settings">
@@ -994,6 +1001,19 @@
         <div class="label" id="progressTitle">กำลังทำงาน…</div>
         <div class="mini" id="progressText">เตรียมข้อมูล</div>
         <div class="progressTrack"><div class="progressFill" id="progressFill"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="backdrop" id="appInstallBackdrop" aria-hidden="true">
+    <div class="modal" style="width:min(420px,calc(100% - 32px));max-height:none">
+      <div class="modalBody">
+        <div class="label">ยังไม่ได้ติดตั้งแอป</div>
+        <div class="mini">ติดตั้ง Timestamp Cam เพื่อใช้กล้องและฟังก์ชัน native บนอุปกรณ์นี้</div>
+        <div class="grid2">
+          <button class="btn" id="btnCancelAppInstall" type="button">ยกเลิก</button>
+          <button class="btn primary" id="btnDownloadApp" type="button">ดาวน์โหลดแอป</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1428,6 +1448,7 @@
   const btnTorch = document.getElementById("btnTorch");
   const btnImport = document.getElementById("btnImport");
   const btnDownloadAll = document.getElementById("btnDownloadAll");
+  const btnOpenNative = document.getElementById("btnOpenNative");
   const btnSettings = document.getElementById("btnSettings");
 
   const btnShutter = document.getElementById("btnShutter");
@@ -1441,6 +1462,9 @@
   const progressTitle = document.getElementById("progressTitle");
   const progressText = document.getElementById("progressText");
   const progressFill = document.getElementById("progressFill");
+  const appInstallBackdrop = document.getElementById("appInstallBackdrop");
+  const btnCancelAppInstall = document.getElementById("btnCancelAppInstall");
+  const btnDownloadApp = document.getElementById("btnDownloadApp");
 
   const useNowMain = document.getElementById("useNowMain");
   const customTimeMain = document.getElementById("customTimeMain");
@@ -1646,6 +1670,46 @@
     previewCanvas.style.transform = `translate(${previewPanX}px, ${previewPanY}px) scale(${previewZoom})`;
   }
   function resetPreviewTransform(){ previewZoom=1; previewPanX=0; previewPanY=0; applyPreviewTransform(); }
+
+  const NATIVE_PACKAGE = "com.example.timestamp";
+  const RELEASES_API_URL = "https://api.github.com/repos/surakiatforwork-art/Timestamp_Cam/releases/latest";
+  const APK_DOWNLOAD_FALLBACK_URL = "https://github.com/surakiatforwork-art/Timestamp_Cam/releases/download/v1.3.0/app-debug.apk";
+  let nativeLaunchTimer = null;
+  function openNativeApp(){
+    if (!/Android/i.test(navigator.userAgent)){
+      openBackdrop(appInstallBackdrop);
+      return;
+    }
+    let appOpened = false;
+    const onVisibilityChange = () => { if (document.hidden) appOpened = true; };
+    document.addEventListener("visibilitychange", onVisibilityChange, {once:true});
+    window.location.href = `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${NATIVE_PACKAGE};end`;
+    clearTimeout(nativeLaunchTimer);
+    nativeLaunchTimer = setTimeout(() => {
+      if (!appOpened && !document.hidden) openBackdrop(appInstallBackdrop);
+    }, 900);
+  }
+  async function downloadNativeApk(){
+    closeBackdrop(appInstallBackdrop);
+    const originalLabel = btnDownloadApp.textContent;
+    btnDownloadApp.disabled = true;
+    btnDownloadApp.textContent = "กำลังหาเวอร์ชันล่าสุด…";
+    try{
+      const response = await fetch(RELEASES_API_URL, { headers: { "Accept": "application/vnd.github+json" } });
+      if (!response.ok) throw new Error("โหลดข้อมูล release ไม่สำเร็จ");
+      const release = await response.json();
+      const apk = (release.assets || []).find(asset => /\.apk$/i.test(asset.name || "") && asset.browser_download_url);
+      if (!apk) throw new Error("ไม่พบ APK ใน release ล่าสุด");
+      window.location.assign(apk.browser_download_url);
+    } catch (error){
+      addLog("latest APK lookup failed: " + String(error?.message || error));
+      showToast("ใช้ลิงก์สำรองสำหรับดาวน์โหลด");
+      window.location.assign(APK_DOWNLOAD_FALLBACK_URL);
+    } finally {
+      btnDownloadApp.disabled = false;
+      btnDownloadApp.textContent = originalLabel;
+    }
+  }
 
   function toNumberOrNull(v){
     const n = Number(v);
@@ -2923,6 +2987,9 @@
   /* Events */
   btnTorch.addEventListener("click", toggleTorch);
   btnImport.addEventListener("click", () => { fileInput.value = ""; fileInput.click(); });
+  btnOpenNative.addEventListener("click", openNativeApp);
+  btnCancelAppInstall.addEventListener("click", () => closeBackdrop(appInstallBackdrop));
+  btnDownloadApp.addEventListener("click", downloadNativeApk);
   fileInput.addEventListener("change", (e) => {
     const files = Array.from(e.target.files || []);
     addPhotosFromFiles(files);
