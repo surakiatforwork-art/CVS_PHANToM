@@ -1284,7 +1284,8 @@
       out.issue = issueValueOrDefault(source.issue);
     }
     if (source.note !== undefined && source.note !== null){
-      out.note = noteValueOrDefault(source.note);
+      const text = String(source.note);
+      out.note = text.trim() ? stripPromotionMediaSection(text) : "";
     }
     out.skuChecks = normalizeSkuChecks(source.skuChecks || source.checkedSkus || {});
     out.summarySelections = normalizeSummarySelections(
@@ -1996,6 +1997,21 @@
     });
   }
 
+  function notifyParentReportSaved(){
+    if (!EMBED) return;
+    postToParent("PT_REPORT_SAVED", {
+      placeId: String((embedPrefillContext && embedPrefillContext.placeId) || "").trim(),
+      reportToken: String((embedPrefillContext && embedPrefillContext.reportToken) || "").trim(),
+      sheetName: String((embedPrefillContext && embedPrefillContext.sheetName) || "").trim(),
+      savedAt: Date.now(),
+      reportDateISO: reportDate.value || todayISO(),
+      account: safeText(account.value).trim(),
+      branchCode: safeText(branchCode.value).trim(),
+      branchName: safeText(branchName.value).trim(),
+      noted: buildNotedPayloadForParent()
+    });
+  }
+
   function reportTeamLine(){
     const sheetName = safeText(embedPrefillContext.sheetName).trim();
     return sheetName || TEAM_REPORT;
@@ -2470,6 +2486,7 @@
 
     addHistoryEntry(text);
     saveFormState();
+    notifyParentReportSaved();
     setStatus(miss.length ? "wait" : "ok", miss.length
       ? `บันทึกในเครื่องแล้ว (ยังไม่ได้กรอก ${miss.join(", ")})`
       : "บันทึกสคริปต์ไว้ในเครื่องแล้ว");
@@ -2677,7 +2694,7 @@
 
     locationArea.value = noted.locationArea || "";
     issue.value = issueValueOrDefault(noted.issue);
-    note.value = noteValueOrDefault(noted.note);
+    note.value = String(noted.note ?? "");
     updatePreview();
     await loadOnlineReportConfig(account.value, !!payload.forceConfigRefresh, {
       skuChecks: noted.skuChecks || {},

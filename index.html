@@ -3522,25 +3522,40 @@
     return out;
   }
 
+  function hasStoredNote_(place){
+    var raw = place && place.noted;
+    if(raw === null || raw === undefined || raw === '') return false;
+    var obj = raw;
+    if(typeof raw === 'string'){
+      var text = String(raw).trim();
+      if(!text) return false;
+      try{ obj = JSON.parse(text); }catch(e){ return true; }
+    }
+    if(!obj || typeof obj !== 'object') return true;
+    if(obj.noted && typeof obj.noted === 'object') obj = obj.noted;
+    return Object.prototype.hasOwnProperty.call(obj, 'note');
+  }
+
   function buildReportPrefillPayload_(place){
     place = place || {};
     var acc = (place.account !== undefined && place.account !== null) ? String(place.account) : '';
     var num = (place.number !== undefined && place.number !== null) ? String(place.number) : '';
     var nam = (place.account_name !== undefined && place.account_name !== null) ? String(place.account_name) : '';
     var noted = readPlaceNoted_(place);
+    var hasStoredNote = hasStoredNote_(place);
     var session = getReportSession_();
 
     var notedPayload = {
       v: 4,
       locationArea: String(noted.locationArea || ''),
       issue: String(noted.issue || ''),
-      note: String(noted.note || ''),
       skuChecks: normalizeSkuChecksMap_(noted.skuChecks || {}),
       summarySelections: normalizeSummarySelectionsMap_(noted.summarySelections || {}),
       promotionMediaSelections: normalizePromotionMediaSelectionsMap_(noted.promotionMediaSelections || {})
     };
+    if(hasStoredNote) notedPayload.note = String(noted.note || '');
 
-    return {
+    var payload = {
       placeId: (place.id !== undefined && place.id !== null) ? String(place.id) : '',
       reportToken: session && session.token ? String(session.token) : '',
       sheetName: session && session.sheetName ? String(session.sheetName) : String(CURRENT_SHEET || ''),
@@ -3549,12 +3564,13 @@
       branchName: nam,
       locationArea: notedPayload.locationArea,
       issue: notedPayload.issue,
-      note: notedPayload.note,
       skuChecks: notedPayload.skuChecks,
       summarySelections: notedPayload.summarySelections,
       promotionMediaSelections: notedPayload.promotionMediaSelections,
       noted: notedPayload
     };
+    if(hasStoredNote) payload.note = notedPayload.note;
+    return payload;
   }
 
   function postReportPrefillMessage_(payload){
@@ -3757,6 +3773,11 @@
 
     if(msg.type === 'PT_REPORT_COPIED'){
       handleReportCopiedMessage_(msg.payload || {});
+      return;
+    }
+
+    if(msg.type === 'PT_REPORT_SAVED'){
+      handleReportSavedMessage_(msg.payload || {});
       return;
     }
   });
@@ -4573,14 +4594,12 @@
     }
   }
 
-  function handleReportCopiedMessage_(payload){
+  function persistReportNotedFromPayload_(payload){
     payload = payload || {};
-    ensureHistoryExistsFromPayload_(payload);
-
     var ctx = resolveSafeReportCopyContext_(payload);
     if(!ctx){
       console.warn('Skipped report->sheet sync because popup context no longer matches the active report session.', payload);
-      return;
+      return false;
     }
 
     var placeId = ctx.placeId;
@@ -4590,13 +4609,24 @@
     try{
       notedStr = JSON.stringify(rec);
     }catch(e){
-      return;
+      return false;
     }
 
     updateLocalNotedState_(placeId, notedStr, sheetName);
 
     // Fire-and-forget: keep copy flow smooth even before backend is updated.
     saveNotedToApiSilent_(placeId, notedStr, sheetName);
+    return true;
+  }
+
+  function handleReportCopiedMessage_(payload){
+    payload = payload || {};
+    ensureHistoryExistsFromPayload_(payload);
+    persistReportNotedFromPayload_(payload);
+  }
+
+  function handleReportSavedMessage_(payload){
+    persistReportNotedFromPayload_(payload);
   }
 
   function renderFromCacheIfAny_(sheetName){
