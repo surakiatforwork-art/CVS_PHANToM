@@ -1686,7 +1686,7 @@
     const onVisibilityChange = () => { if (document.hidden) appOpened = true; };
     document.addEventListener("visibilitychange", onVisibilityChange, {once:true});
     // Chrome uses this explicit fallback instead of its default Play Store route.
-    window.location.href = `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${NATIVE_PACKAGE};S.browser_fallback_url=${encodeURIComponent(fallbackUrl.href)};end`;
+    window.location.href = `intent://open/#Intent;scheme=phantomtimestamp;package=${NATIVE_PACKAGE};S.browser_fallback_url=${encodeURIComponent(fallbackUrl.href)};end`;
     clearTimeout(nativeLaunchTimer);
     nativeLaunchTimer = setTimeout(() => {
       if (!appOpened && !document.hidden) openBackdrop(appInstallBackdrop);
