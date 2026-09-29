@@ -1680,10 +1680,13 @@
       openBackdrop(appInstallBackdrop);
       return;
     }
+    const fallbackUrl = new URL(window.location.href);
+    fallbackUrl.searchParams.set("native-missing", "1");
     let appOpened = false;
     const onVisibilityChange = () => { if (document.hidden) appOpened = true; };
     document.addEventListener("visibilitychange", onVisibilityChange, {once:true});
-    window.location.href = `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${NATIVE_PACKAGE};end`;
+    // Chrome uses this explicit fallback instead of its default Play Store route.
+    window.location.href = `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${NATIVE_PACKAGE};S.browser_fallback_url=${encodeURIComponent(fallbackUrl.href)};end`;
     clearTimeout(nativeLaunchTimer);
     nativeLaunchTimer = setTimeout(() => {
       if (!appOpened && !document.hidden) openBackdrop(appInstallBackdrop);
@@ -1709,6 +1712,10 @@
       btnDownloadApp.disabled = false;
       btnDownloadApp.textContent = originalLabel;
     }
+  }
+  if (new URLSearchParams(window.location.search).get("native-missing") === "1"){
+    history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
+    setTimeout(() => openBackdrop(appInstallBackdrop), 80);
   }
 
   function toNumberOrNull(v){
