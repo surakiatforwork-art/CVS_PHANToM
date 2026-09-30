@@ -100,6 +100,12 @@ convert successful-only timings into reliability claims. No observation window h
 yet been completed. Seven elapsed days or a fixed sample count alone cannot satisfy
 Gate A. No synthetic production writes, forced replay or load tests.
 
+The source-confirmed metric-by-metric collection matrix, 7-day protocol, privacy rules,
+minimal telemetry designs, and Decision Gate A evidence requirements are in
+[WORKER_D1_SHEETS_BACKEND_PLAN.md](WORKER_D1_SHEETS_BACKEND_PLAN.md#phase-0-detailed-measurement-matrix).
+Those sections are design only and do not authorize telemetry implementation or any
+production behavior change.
+
 | Metric | Existing evidence | Remaining status / permitted method |
 | --- | --- | --- |
 | Read latency | One success per sheet and one getSheets timing | No valid p50/p95; passive reads or bounded safe read probes |

@@ -15,34 +15,37 @@ for other agents.
 | --- | --- | --- |
 | Cloudflare tooling and account authentication | Complete | `wrangler 4.144.0` is installed and account access was verified. Do not store or commit OAuth credentials. |
 | Read-only Cloudflare account check | Complete | Confirmed before any resource creation. |
-| Worker DEV bootstrap (Phase 0A) | Complete | `workers/cvs-phantom-api-dev/` is deployed with only `GET /health`, no bindings, no secrets, and no frontend traffic. |
-| Worker DEV local and remote health tests | Complete | Local and `workers.dev` `GET /health` returned `200`; unknown route returned `404`. |
+| Worker DEV bootstrap (Phase 0A) | Complete | Initial health-only scaffold was validated before starting the isolated DEV gateway experiment. |
+| Worker DEV gateway experiment (Phase 0B, provisional) | Deployed to DEV, end-to-end pending | Worker DEV implements authenticated read/write API contracts; secrets are configured only for DEV. Remote health 200, missing-token 401, invalid-token 403, disabled-admin 403. Authenticated bridge reads currently fail because Google Web App access/configuration is pending; no frontend traffic. |
 | Phase 0 static/outbox review | Complete | Existing API, cache, Apps Script lock, local cache, and visit/noted outbox behavior recorded in `docs/PHASE_0_BASELINE_2026-09-30.md`. |
 | Phase 0 single-read Sheet snapshot | Complete | Read-only counts, uniqueness, field-presence, response sizes, and successful request timing for all usable sheets recorded in the baseline document. |
 | Phase 0 p50/p95, failure-rate, active-user, quota, and outbox-volume measurement | Incomplete / needs telemetry | Individual successful reads and sampling stalls are recorded; a valid 7-day observation set is unavailable. Do not make Decision Gate A yet. |
-| Operational Worker API | Not implemented | Local Worker source implements only `GET /health`; all other routes return `404`. |
+| DEV Apps Script bridge and staging Sheets | Created; live bridge access pending | Independent standalone DEV bridge source uploaded and deployment created; staging spreadsheet is a copy of DB_GBKK4 and all 506 REPORT_CONFIG rows. Google currently returns HTTP 403 on Web App GET. Owner must set Script Properties/authorization and configure Web App access; only DEV/staging may be used. |
 | Decision Gate A: Worker gateway only vs Worker plus D1 | Blocked by incomplete Phase 0 metrics | No D1 decision has been approved. |
-| Phase 1 D1 foundation | Not started; D1 not created | **Do not create D1 or modify the DEV Worker beyond health without explicit next-task approval.** |
+| Phase 1 D1 foundation | Not started; D1 not created | The provisional gateway DEV experiment is not Decision Gate A approval. D1 remains blocked pending sufficient evidence and explicit approval. |
 | Production frontend/App Script data path | Not started | `index.html`, `Tools/Report.html`, `Tools/ReportAdmin.html`, and deployed Apps Script remain unchanged by this backend work. |
 | CVS_SME adoption | Not started | CVS_SME has active users and must not use any CVS_PHANToM Cloudflare or Sheets resource. |
 
 ### Current Safe Next Action
 
-Continue documentation and read-only Phase 0 evidence review using the measurement
-method below. Inventory available historical logs and operator observations, and record
-missing metrics as unavailable / needs telemetry. Plan a 7-day observation window over
-normal usage; do not claim it has been collected. Do not generate production writes,
-force outbox replay, add telemetry code, or deploy changes to obtain measurements under
-this documentation-only task. Any missing instrumentation needs a separately authorized
-task. Update `docs/PHASE_0_BASELINE_2026-09-30.md` with sources, date range, sample
-counts, limitations, and results before requesting an explicit Decision Gate A decision.
-D1 foundation remains blocked until metrics are sufficient and the D1 path is approved.
+Finish and verify the independent DEV gateway without changing production. Complete
+Apps Script bridge Script Properties and Web App authorization/access, then test
+authenticated read/write operations against the staging spreadsheet only. Verify
+field-version 409 conflicts, durable idempotency receipts, pending-request recovery,
+report-config account isolation, secret rejection and realistic failure handling.
+Document actual test evidence and unresolved limits in
+`docs/BACKEND_DEV_PROGRESS_2026-09-30.md`. Continue permitted passive Phase 0
+observations separately; the DEV experiment does not replace the missing seven-day
+measurements or approve D1. Do not connect the existing frontend until a separate
+integration decision is explicitly approved.
 
 ### Explicit Stop Conditions
 
-- Do not create a D1 database, Queue, Cron trigger, secret, or Apps Script bridge yet.
+- Do not create a D1 database, Queue, Cron trigger, or production Apps Script bridge.
+  The existing DEV-only secrets and isolated DEV bridge are permitted for staging tests.
 - Do not redirect, proxy, or shadow production frontend traffic through the Worker.
-- Do not modify production Sheets or execute API mutation actions for baseline collection.
+- Do not modify production Sheets or initiate production API mutations for tests or baseline collection.
+- Do not add credentials to the repository, and do not enable admin mutations before their tests pass.
 - Do not copy this work into CVS_SME until Phase 9's prerequisite is met.
 
 ## Repository and Rollout Roles
@@ -108,8 +111,8 @@ operational review.
 | Place local cache | Yes | Retain with Worker revision/ETag |
 | Report iframe/prefill/history | Yes/browser-local | Preserve unchanged initially |
 | Apps Script authentication | No | Private signed Worker bridge |
-| Worker DEV scaffold | Already exists: health-only, isolated | Reuse `workers/cvs-phantom-api-dev/` |
-| Operational Worker API | Not implemented | Gateway or D1-backed API selected at Decision Gate A |
+| Worker DEV scaffold and gateway | Gateway implemented and deployed for isolated DEV/staging testing; live bridge integration pending | Reuse `workers/cvs-phantom-api-dev/` after gateway-only versus D1 decision |
+| Production-ready operational Worker API | Not implemented; DEV API is provisional, shared DEV bearer token only | Gateway or D1-backed production API plus role authorization selected after Decision Gate A |
 | D1 | Not created | Create only after sufficient Phase 0 metrics and explicit D1 approval at Decision Gate A |
 | Manual Google Sheet editing | Yes | Preserve through durable change capture |
 
@@ -179,6 +182,169 @@ Future peak users, request concurrency, read/write mix, data growth, offline bur
 p95 targets and acceptable sync lag are **TBD assumptions**, to be agreed and tested
 in isolated staging. CVS_SME demand is separate and not inferred from CVS_PHANToM.
 Single-owner measurements alone cannot validate a many-user target or justify D1.
+
+## Phase 0 Detailed Measurement Matrix
+
+This matrix is the source-confirmed collection design. It supplements the compact
+measurement table above. "Passive" means observing normal user actions or existing
+logs only; it never means generating a visit, note, route, location, reset, Sync,
+cache clear, or load-test request to produce a sample.
+
+| Metric | Source already available | What can be measured now | Unavailable / needs telemetry | Passive collection method | Sample / aggregation method | Risk or limitation | Needs telemetry? | Smallest telemetry proposal (design only) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Read latency p50/p95 | Browser Network/DevTools for normal JSONP reads; Apps Script responses; historical baseline | Individual elapsed samples for `getSheets`, `getPlaces`, config meta/config when a user naturally opens them | Complete population p50/p95 across devices and cache states | Record normal request start-to-valid-response time, action, sheet, transport, cache hint, and outcome | Keep actions/sheets/cache states separate; nearest-rank p50/p95 on successful samples; report timeouts separately | JSONP obscures some HTTP detail; browser timing is device/network-specific | Yes for representative population; No for a manual local sample | One client event after each completed read: action, sheet pseudonym, start/end duration, outcome, cache hint, retry/operation IDs; no payload/store data |
+| Write latency p50/p95 | Normal UI requests for visit, note, route, location, report config; Apps Script response | A normal user operation can be timed from submit to API acknowledgement; ReportAdmin confirmation polling can be observed separately | Representative write latency, queue delay, and acknowledgement-to-durable-confirmation distribution | Observe naturally occurring actions only; record client submit, each attempt, acknowledgement, and final visible confirmation | Aggregate separately by mutation action; report direct write, queued wait, and confirmation polling as different durations | Acknowledgement does not prove future cross-system durability; no writes may occur in a window | Yes | One completion event per logical user operation with action, operation ID, attempts, queue delay, acknowledgement/final-confirmation times, and sanitized outcome code |
+| HTTP/API errors and timeout rate | Browser Network/console, JSONP callbacks/errors, existing Apps Script execution view if accessible | Errors seen on the observed device; API `ok:false`; callback/script errors; manually observed timeouts | Fleet-wide HTTP status mix and error denominator | Record every observed attempt and classify HTTP when known, JSONP/script error, parse error, API error, timeout, or cancelled observation | Error rate = failed attempts / all attempts, by action and source; show unknown HTTP status separately | JSONP can hide status and retries distort rate if not labeled | Yes | Reuse the minimal request completion event with `outcomeClass`, status when known, timeout flag, and attempt number |
+| Apps Script lock failures | `code.gs.txt` returns an `ok:false` message after 1-second lock acquisition failure for visit/note/route/location; 5 seconds for bulk config | Static lock windows and any observed matching API error | Actual lock-failure count/rate and lock wait time | Correlate normal observed API responses with Apps Script execution/error records where available | Count lock failures per mutation action and per logical operation; retain retries as attempts | Error text may change; execution dashboard may not expose a structured reason | Yes | Emit a sanitized server-side counter/event only for lock result, action, elapsed lock wait bucket, and timestamp; no row IDs/payloads |
+| Apps Script quota/execution failures | Apps Script execution/error dashboard if owner access exists; browser failure observations | Historical/dashboard failures visible to the owner | Quota category, per-action failure rate, and complete execution duration distribution | Export or manually inspect existing execution/error records over the observation window | Count by documented failure category and day; record unknown when only a client error exists | Dashboard retention/detail may be insufficient; no source-level quota counter exists | Yes if dashboard evidence is insufficient | Minimal server event with action, completion class (`success`, `lock`, `quota`, `exception`), duration, and request/operation ID hash |
+| Active users | No authentication or durable session counter in source; operator observation only | Reported owner/operator context | Daily active users or distinct users | If existing access/session records exist, count anonymized distinct users; otherwise record unavailable | Daily distinct rotating pseudonyms, with source coverage stated | Browser/device identifiers can over- or under-count people; no current source proves identity | Yes | Privacy-preserving rotating daily client pseudonym with no account, store, GPS, note, or device fingerprint fields |
+| Peak concurrent users / concurrent requests | No concurrency metric in browser or Apps Script source | None beyond isolated observation of one device | Peak users, peak in-flight requests, and burst profile | Existing execution records may show overlapping timestamps if they contain sufficient detail; otherwise unavailable | Maximum overlapping request intervals per action/day; separately state user concurrency versus request concurrency | Execution timestamps may be coarse; one device cannot represent total concurrency | Yes | Request lifecycle events with timestamp and short-lived request ID; derive overlap off-device without retaining user content |
+| Daily request volume by action | Browser API wrappers name actions; Apps Script `doGet` routes actions | Local/manual count for a sampled device only | Complete daily production volume by action and retry rate | Count passive observed requests and distinguish action, attempt, and logical operation | Daily counts: logical operations, attempts, retries, successes, failures, unknown coverage | Apps Script execution count alone may not retain action; JSONP retries otherwise look like new requests | Yes | One lightweight request event with action, operation ID, attempt number, and outcome; aggregate daily before export |
+| Visit outbox replay volume | `PT_GBKK_VISIT_OUTBOX_V1`; boot/online/manual Sync calls `syncVisitOutbox_` | Current queue count and pending item age on one browser; normal sync behavior can be observed | Exact attempts, successful removals, failures, and fleet replay volume | Passive localStorage/DevTools snapshot before/after naturally occurring sync; do not click Sync for measurement | Per-device backlog count/oldest age; only call a replay observed when the same pending item disappears after a normal sync | Queue entries coalesce only by visit key; snapshots cannot prove why an entry changed | Yes for replay volume; No for a one-device backlog snapshot | Emit aggregate visit-outbox attempt/result events using operation ID hash and queue-size/age buckets; omit place ID |
+| Noted outbox replay volume | `PT_GBKK_NOTED_OUTBOX_V1`; `readNotedOutbox_` keeps latest state per `(sheetName, id)` | Current queue count/age on one browser and normal sync observation | Exact write supersession, replay success/failure, and fleet volume | Passive localStorage/DevTools snapshot before/after normal replay | Record latest-state queue count and age; do not infer item creation count from queue size | Later note replaces earlier state; queue delta is not a count of user edits | Yes for replay volume; No for a one-device backlog snapshot | Emit aggregate note-outbox attempt/result and superseded-state counter; never send noted JSON, store ID, or report content |
+| Outbox backlog / oldest pending age | Both local outbox records include `createdAt`; Sync button exposes combined count | Per-device visit/note count and oldest pending age without mutation | Global backlog, age distribution, and reason an item remains pending | Read localStorage passively or record the visible pending count during normal use | Snapshot by local day: queue type, count, oldest-age bucket, observation time; do not edit storage | Clock skew and stale tabs affect age; backlog is browser-local | Yes for fleet aggregate; No for a local snapshot | Periodic low-frequency aggregate heartbeat only while app is open: queue counts and oldest-age buckets, no payload/IDs |
+| Google Sheet row/column size | Google Sheets UI/read-only export; `getLastRow()`/`getLastColumn()` in source | Physical dimensions when owner inspects Sheets; API returned place count and response bytes | Historical growth rate without repeated inspection | Manual read-only sheet inspection or existing export metadata | Per sheet: physical rows, columns, usable rows, timestamp; keep API place count separate | `getPlaces` omits rows lacking ID/name; no generic read API exposes physical dimensions | No | None initially; a later read-only inventory endpoint is optional only after separate approval |
+| Report config size | `__REPORT_CONFIG` Sheet tab and its known columns; ReportAdmin loaded items | Physical rows/columns and account/kind counts through read-only Sheet inspection | Complete config size/growth history if no snapshots exist | Inspect Sheet UI/export only; do not call helper paths that can create/unhide the tab | Per account/kind: active/inactive item count and serialized data byte total if export provides it | `getReportConfigSheet_()` can insert/unhide a tab, so it is not a safe generic probe | No | None initially; optional later inventory should be read-only and must not create/unhide sheets |
+| Response payload size | Browser Network transfer/body size; baseline JSONP body bytes | Individual `getPlaces`/`getSheets` response size for observed normal loads | Fleet payload distribution and compression/transfer details when browser omits them | Record Network body/transfer bytes from natural reads | p50/p95/max bytes by action/sheet and known cache state | JSONP and redirects can obscure transfer size; body bytes differ from compressed bytes | No for manual sample; Yes for fleet distribution | Add response byte count to the same minimal read completion event, never the response body |
+| Reconciliation / data-validity signals | Sheet UI/export; `getPlaces` response fields (`id`, route, lat/lng, visited, noted, revision); baseline uniqueness/presence checks | Point-in-time per-sheet returned count, duplicate IDs, field presence, route/coordinate validity rules, and API-versus-export comparison | Automatic change capture, full history, cross-system parity, and alerting | Aligned read-only Sheet export and API snapshot; compare only documented fields/rules | Record timestamp, source revision/cache state, counts, duplicate IDs, invalid coordinates/routes, and mismatches by field | Manual Sheet edits do not bump revision; cache and normal edits can make snapshots non-atomic | No for manual point-in-time comparison; Yes for continuous reconciliation | Future minimal reconciler emits aggregate mismatch counts and revisions only; do not copy store names, notes, or coordinates |
+
+### Source-Confirmed Constraints
+
+- `index.html` uses JSONP reads and retries some reads, so an attempt and a logical user
+  operation are different units.
+- `VISIT_OUTBOX_KEY` and `NOTED_OUTBOX_KEY` are browser-local. The noted outbox keeps
+  only the latest state for a store, so backlog size cannot be treated as edit volume.
+- `code.gs.txt` exposes mutations through `GET`; never infer a request is read-only from
+  its HTTP method alone.
+- `api_getPlaces_()` reads Sheet rows and uses `CacheService` with a 300-second TTL.
+  It returns only rows that have both an ID and a name.
+- `getReportConfigSheet_()` can create or unhide `__REPORT_CONFIG`; therefore report
+  configuration inspection must use the Google Sheet directly during Phase 0.
+
+## Seven-Day Observation Protocol
+
+This protocol is a design for a separately authorized observation run. It does not
+authorize instrumentation, production writes, forced Sync/replay, cache clearing,
+resource creation, deployment, or load testing.
+
+### Time Window and Coverage
+
+1. Before the run, record `start_utc` in ISO 8601, `start_bangkok` in
+   `Asia/Bangkok`, the planned `end_utc`, and the planned `end_bangkok`. The end is
+   seven consecutive Bangkok calendar days after the start.
+2. At completion, record actual UTC and Bangkok start/end timestamps, observation
+   devices/networks, missing intervals, data sources, and whether normal use occurred.
+3. Seven elapsed days alone is insufficient. Coverage must include the normal operating
+   periods and every action that actually occurred; metrics with no valid source remain
+   `Unavailable / Needs telemetry`.
+
+### Per-Request Observation Record
+
+For an observed normal request, record only:
+
+| Field | Rule |
+| --- | --- |
+| `observed_at_utc`, `observed_at_bangkok` | Both timestamps; Bangkok date is the business-day grouping key. |
+| `action`, `mode` | Action name and `read` or `write`; never infer mode from HTTP GET alone. |
+| `sheet` | Sheet pseudonym or approved non-sensitive sheet label. |
+| `operation_id`, `attempt_id`, `attempt_number` | One operation ID starts at a user action; every retry receives a new attempt ID and incremented attempt number. |
+| `transport`, `cache_hint` | JSONP/fetch where known; `browser-cache`, `Apps-Script-cache`, `unknown`, or another evidenced state. |
+| `started_at`, `ended_at`, `duration_ms` | Client-observed timestamps only. For queued writes, also retain queue-entered and final-confirmed times separately. |
+| `outcome` | `success`, `api_error`, `lock_failure`, `quota_or_execution_failure`, `http_error`, `jsonp_or_network_error`, `timeout`, `cancelled`, or `unknown`. |
+| `http_status`, `api_message_class` | Record only when known; normalize message classes and do not retain user-entered text. |
+| `response_bytes` | Body/transfer size when observable; otherwise `unknown`. |
+
+Retries share the same `operation_id` as the original user action. Aggregation must show
+both logical-operation success and attempt-level error rate. A retry never becomes a
+new user operation merely because JSONP or a sync function issued another request.
+
+### Aggregation and Percentiles
+
+- Group by action, read/write mode, sheet pseudonym, transport, and known cache state.
+  Do not pool these groups without an explicit reason.
+- For successful attempts, calculate p50 and p95 using nearest rank `ceil(p * n)` and
+  publish `n`. Keep timeout and failed attempt counts outside the latency percentile.
+- For write operations, publish direct request time, local queue wait, and final visible
+  confirmation time as separate measures; do not call one a substitute for another.
+- Report daily logical operations, attempts, retries, successful attempts, failed
+  attempts, timeout count, and unknown-status count. State coverage before calculating
+  a rate.
+
+### Outbox, Apps Script, and Sheet Evidence
+
+- Inspect visit/note outbox counts and oldest `createdAt` age passively on participating
+  browsers. Do not edit localStorage, click Sync to create a measurement, or force a
+  replay. Capture queue type, count, oldest-age bucket, local observation time, and
+  whether a normal sync was observed.
+- Use existing Apps Script execution/error records only when access exists. Preserve the
+  native timestamp and classify error evidence conservatively; no record is not proof
+  of no lock or quota failures.
+- Record physical Sheet and `__REPORT_CONFIG` size through direct read-only Sheet
+  inspection. Do not invoke helper code that may create or unhide the config tab.
+- For reconciliation, compare timestamped Sheet exports and API snapshots by sheet/ID,
+  count, active/usable row count, route validity, coordinate validity, visited state,
+  and noted presence. Record cache/revision state and any normal edits between snapshots.
+
+### Retention, Privacy, and Documentation
+
+- Keep raw observation notes only in an access-controlled local workspace for at most
+  14 days after aggregation, then delete them according to the owner's process.
+- Never commit store IDs, store names, branch numbers, maps URLs, coordinates, report
+  notes, SKU checks, account credentials, OAuth tokens, cookies, IP addresses, or full
+  user-agent strings.
+- Commit aggregate-only documentation: date window, source coverage, sample counts,
+  latency percentiles, error/timeout counts, backlog age buckets, sheet/config sizes,
+  and reconciliation mismatch counts. Use sheet aliases where sheet names are sensitive.
+- The baseline document records historical observations. Append a new dated observation
+  section rather than overwriting its provenance or treating it as live telemetry.
+
+## Decision Gate A Evidence Sufficiency
+
+Decision Gate A remains a user decision. The evidence below defines what must be
+available to make that decision responsibly; it does not select Option A or Option B.
+
+### A. Current CVS_PHANToM Workload
+
+| Evidence area | Minimum evidence before a decision | May be unavailable? | Confidence / coverage requirement |
+| --- | --- | --- | --- |
+| Read behavior | Per action/sheet successful sample counts, p50/p95, timeout/error counts, payload size, cache-state coverage where known | No; absence means Gate A stays pending | Seven-day window with disclosed missing periods and coverage of normal reads for each active sheet |
+| Write behavior | Naturally occurring action counts, logical-operation success, attempt errors/timeouts, and observed acknowledgement/confirmation timing | Yes only if an action did not naturally occur; document it and do not generalize write capacity | Every observed action must retain attempt/operation distinction; unavailable actions require later staging validation |
+| Apps Script health | Existing lock/quota/execution evidence or an explicit documented inability to access it | Yes, but this weakens confidence and cannot support a claim that Sheets are proven sufficient | Correlate with the same observation window where possible; zero is valid only with evidence, never by omission |
+| Current load | Distinct-user source if available, request volume by action, retry rate, outbox backlog/replay observations | Active users/concurrency may be unavailable if no identity/session source exists | Clearly state source coverage; single-owner context may describe current use but cannot support capacity claims |
+| Data scale and validity | Physical Sheet/config dimensions, API payload sizes, duplicate/invalid field checks, and a timestamped reconciliation sample | No for dimensions/payload/validity snapshot | Cover every active sheet and record excluded rows, cache/revision state, and comparison timing |
+| Operations readiness | Named owner review of alert, retry, reconciliation, recovery, conflict, and sync-lag responsibilities | No | Written acceptance of responsibilities and unresolved gaps before enabling any two-way sync |
+
+### B. Future Target Workload Assumptions
+
+These are owner-approved targets to collect before a selection. They are intentionally
+`TBD`; do not fill them from single-owner CVS_PHANToM observations or CVS_SME usage.
+
+| Assumption | Owner-approved value | Evidence / validation required |
+| --- | --- | --- |
+| Target active users | TBD | Defined user population and observation period |
+| Target peak concurrency | TBD | Explicit concurrent-user and concurrent-request definition; staging validation plan |
+| Expected reads per day | TBD | Per-action daily forecast, peak-hour distribution, and retry allowance |
+| Expected writes per day | TBD | Per-action forecast including visit/note/config and route/location online-only constraint |
+| Offline replay burst | TBD | Maximum queued operations/device, reconnect window, and duplicate/retry behavior |
+| Expected store-count growth | TBD | Active sheets, stores/sheet, config-item growth, and planning horizon |
+| Target p95 read latency | TBD | Measurement boundary: client observed, action/sheet/cache state, and network assumptions |
+| Target p95 write latency | TBD | Separate acknowledgement, queue wait, and final-durability/confirmation target |
+| Acceptable Sheet sync delay | TBD | Direction, percentile/maximum, alert threshold, and business impact |
+| Reliability target | TBD | Success/error/timeout definition, coverage, and treatment of offline/queued work |
+
+An assumption is usable only when its value, owner, date, rationale, and validation plan
+are recorded. A target without a measurement boundary is not a Decision Gate criterion.
+
+### Option Evidence Comparison (No Selection)
+
+| Option | Evidence that would support the option | Evidence that would keep the option unproven or unsuitable |
+| --- | --- | --- |
+| A. Browser -> Worker -> private Apps Script -> Google Sheets | Current and approved future workload can meet agreed read/write latency, reliability, payload, and sync-delay targets through a gateway; lock/quota evidence is acceptable; Sheets operations and recovery remain manageable without a second operational database | Missing request/error coverage, repeated lock/quota failures, inability to meet approved targets, or no demonstrated operational recovery capacity |
+| B. Browser -> Worker -> D1 <-> Google Sheets | Measured or validated future concurrency, latency, availability, write/replay, or Sheet-operation constraints justify a separate operational store; team accepts conflict/versioning, signed bridge, outbox, reconciliation, and recovery ownership; staging can validate parity and two-way synchronization | D1 is proposed only because it seems faster, without workload evidence; no accepted sync ownership; no reconciliation/recovery plan; or gateway-only meets targets with less risk |
+
+Both options require a documented security model, data ownership decision, recovery plan,
+and CVS_PHANToM-only pilot boundary before frontend migration. CVS_SME remains outside
+this Gate A decision until Phase 9.
 
 ## Target Architecture
 

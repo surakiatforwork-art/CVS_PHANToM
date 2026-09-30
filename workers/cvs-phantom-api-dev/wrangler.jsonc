@@ -4,6 +4,12 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-30",
   "workers_dev": true,
+  "vars": {
+    "ENVIRONMENT": "development",
+    "BRIDGE_TIMEOUT_MS": "20000",
+    "ENABLE_EDGE_CACHE": "0",
+    "ALLOWED_ORIGINS": ""
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
