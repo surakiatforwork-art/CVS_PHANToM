@@ -97,7 +97,8 @@ probes, if undertaken separately, are sequential, spaced at least 60 seconds, li
 to 10 per session with a 60-second timeout, and stop on the first error. Compute
 nearest-rank p50/p95 per action only with sample counts and limitations; do not
 convert successful-only timings into reliability claims. No observation window has
-yet been completed. No synthetic production writes, forced replay or load tests.
+yet been completed. Seven elapsed days or a fixed sample count alone cannot satisfy
+Gate A. No synthetic production writes, forced replay or load tests.
 
 | Metric | Existing evidence | Remaining status / permitted method |
 | --- | --- | --- |
@@ -143,7 +144,8 @@ modify production to fill these gaps under this documentation task:
 
 ## Decision Gate A
 
-**Status: not decided.** The DEV Worker is isolated and healthy, but Phase 0 data is not
+**Status: not decided; blocked by incomplete Phase 0 metrics.** The recorded DEV Worker
+checks passed, but Phase 0 data is not
 yet sufficient to choose a backend path. D1 foundation has not started and must wait
 until metrics are sufficient and Decision Gate A explicitly approves D1. Preserve the
 existing Google Sheets/App Script production path while collecting the missing observational

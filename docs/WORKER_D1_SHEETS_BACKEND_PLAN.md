@@ -150,7 +150,8 @@ deployment, or resource creation are authorized for baseline collection.
 | Request volume | Count existing complete network/execution records by day/action, distinguishing attempts, retries, logical operations and sampling coverage. | Single-device samples are partial; no extrapolated site totals without coverage evidence. |
 | Outbox replay volume | Passive snapshots of visit/noted queue count/oldest age and existing normal replay observations, without editing localStorage or invoking Sync. | Snapshot deltas do not prove replay counts: noted entries coalesce and new items arrive. Exact attempts/successes unavailable/needs telemetry without event records. |
 | Sheet/config size | Existing read-only exports or Sheets inspection for physical row/column/config counts; API response counts and bytes separately. | `getPlaces` omits rows without ID/name. API counts are not physical Sheet dimensions; avoid `getReportConfig` probes because its helper can create/unhide the config tab. |
-| Reconciliation / operability | Compare read-only exports and API snapshots by sheet/ID and field presence at recorded times; document owner capacity for monitoring, retry and recovery. | Cache/revision timing may differ; parity and two-way-sync readiness cannot be inferred from presence counts alone. |
+| Reconciliation / data validity | Compare read-only exports and API snapshots by sheet/ID at aligned times; record count/state differences and explicit route/location validity rules. | Cache/revision timing and intervening normal edits may differ; presence counts alone do not establish validity or parity. |
+| Two-way sync operating readiness | Document owner review of alert ownership, conflict handling, retries, reconciliation, restore responsibilities, operating time budget, and acceptable sync lag. | Not assessed; no live sync exists. Later recovery validation needs an approved isolated staging task. |
 
 For any deliberate read probe use one in-flight request, at least 60 seconds between
 requests, at most 10 requests per session, and a 60-second timeout; stop on first
@@ -162,8 +163,9 @@ backend side effects.
 Report sample count, successful count, failures and missing intervals per action.
 Calculate successful-request percentiles by nearest rank `ceil(p * n)` on sorted
 latencies; report timeouts separately rather than dropping them from reliability
-statistics. Fewer than 100 successes per action is descriptive only for this plan;
-even 100 does not establish representativeness. Never pool different actions,
+statistics. Sample sufficiency must be reviewed against coverage and the agreed
+future workload; neither a fixed sample count nor seven elapsed days establishes
+representativeness or satisfies Gate A. Never pool different actions,
 transports, sheets, or known cache states into an unexplained percentile.
 
 ### Current Load vs Future Workload Assumptions
@@ -380,7 +382,7 @@ Bulk Report config replace must atomically replace that account's config rows an
 increment `report_config_sets.version`; `GET /v1/report-config/:account` returns the
 set-level version plus items so existing Report config cache/version behavior is preserved.
 
-## Worker API Contract
+## Proposed Operational Worker API Contract
 
 All mutation endpoints use JSON over HTTPS, authenticated sessions, server-side
 validation, an `Idempotency-Key` header, and a field-specific `baseVersion`. No
@@ -516,7 +518,7 @@ implementation plan instead of proceeding through the D1 phases.
 ### Phase 0: Baseline and Safety
 
 - **Objective:** collect baselines and make Decision Gate A.
-- **Allowed changes:** export/measurement/documentation only; no production data path change.
+- **Allowed changes:** read-only export, passive observation, and documentation under the measurement method; no synthetic production mutations or production data path change.
 - Export Sheets and capture row counts, IDs, route/location/visited/noted samples.
 - Document latency, lock/quota errors, active sheets, current outbox formats, and usage volume.
 - **Integrity/acceptance:** repeatable comparison report and explicit Worker-only versus D1 decision.
@@ -623,9 +625,9 @@ implementation plan instead of proceeding through the D1 phases.
   remain on its current Apps Script path until the CVS_SME-specific decision gate passes.
 - **Integrity/acceptance:** CVS_SME reconciliation, conflict behavior, offline replay,
   and rollback have been demonstrated against CVS_SME's own data.
-- **Rollback/recovery:** switch CVS_SME feature flags back to its existing Apps Script
-  path; keep its D1 data and sync outbox for diagnosis and replay. CVS_PHANToM remains
-  unaffected.
+- **Rollback/recovery:** pause affected CVS_SME writes and reconcile pending projections
+  before switching its flags back to its existing Apps Script path; keep its D1 data
+  and sync outbox for diagnosis and replay. CVS_PHANToM remains unaffected.
 
 ## Rollback Rules
 
