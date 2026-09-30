@@ -717,6 +717,9 @@
   const STORE_UI = "PT_REPORT_UI_V1";
   const STORE_REPORT_CONFIG_CACHE = "PT_REPORT_CONFIG_CACHE_V1";
   const STORE_SKU_GLOBAL = "PT_REPORT_SKU_GLOBAL_V1";
+  // Shared with the map page. Write before postMessage so an immediate browser close
+  // cannot discard a completed report action.
+  const STORE_NOTED_OUTBOX = "PT_GBKK_NOTED_OUTBOX_V1";
   const SKU_GLOBAL_PRESET_VERSION = "2026-07-14-order-v2";
   const STORAGE_CACHE_PREFIX = "PT_GBKK_PLACES_CACHE_";
   const MAX_HISTORY_ITEMS = 240;
@@ -1209,14 +1212,12 @@
     if (Array.isArray(raw)){
       for (const id of raw){
         if (typeof id !== "string") continue;
-        if (!SKU_ITEM_MAP.has(id)) continue;
         out[id] = true;
       }
       return out;
     }
 
     for (const [id, value] of Object.entries(raw)){
-      if (!SKU_ITEM_MAP.has(id)) continue;
       out[id] = !!value;
     }
 
@@ -1981,8 +1982,34 @@
     };
   }
 
+  function queueEmbeddedNotedOutbox(){
+    if (!EMBED) return;
+    const placeId = String((embedPrefillContext && embedPrefillContext.placeId) || "").trim();
+    const sheetName = String((embedPrefillContext && embedPrefillContext.sheetName) || "").trim();
+    if (!placeId || !sheetName) return;
+
+    let noted = "";
+    try{
+      noted = JSON.stringify({
+        v: 4,
+        ...buildNotedPayloadForParent(),
+        reportDateISO: reportDate.value || todayISO(),
+        updatedAt: new Date().toISOString()
+      });
+      const raw = JSON.parse(localStorage.getItem(STORE_NOTED_OUTBOX) || "[]");
+      const items = Array.isArray(raw) ? raw : [];
+      const key = `${sheetName}|${placeId}`;
+      const next = items.filter((item) => `${String(item && item.sheetName || "").trim()}|${String(item && item.id || "").trim()}` !== key);
+      next.push({ id: placeId, sheetName, noted, createdAt: Date.now() });
+      localStorage.setItem(STORE_NOTED_OUTBOX, JSON.stringify(next));
+    }catch(_){
+      // The parent still receives the payload and can keep the current-session state.
+    }
+  }
+
   function notifyParentReportCopied(){
     if (!EMBED) return;
+    queueEmbeddedNotedOutbox();
     postToParent("PT_REPORT_COPIED", {
       placeId: String((embedPrefillContext && embedPrefillContext.placeId) || "").trim(),
       reportToken: String((embedPrefillContext && embedPrefillContext.reportToken) || "").trim(),
@@ -1999,6 +2026,7 @@
 
   function notifyParentReportSaved(){
     if (!EMBED) return;
+    queueEmbeddedNotedOutbox();
     postToParent("PT_REPORT_SAVED", {
       placeId: String((embedPrefillContext && embedPrefillContext.placeId) || "").trim(),
       reportToken: String((embedPrefillContext && embedPrefillContext.reportToken) || "").trim(),
