@@ -298,6 +298,19 @@
       border-radius: 16px;
     }
 
+    .pairCard { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 54px; gap: 8px; padding: 10px; border: 1px solid var(--line); background: #fbfffd; border-radius: 18px; }
+    .pairSlot { min-width: 0; border-radius: 14px; overflow: hidden; border: 2px solid transparent; background: var(--soft); }
+    .pairSlot.due { border-color: var(--danger); animation: duePulse 1s ease-in-out infinite alternate; }
+    .pairSlot.exported { opacity: .5; }
+    .pairImage, .pairMissing { display: block; width: 100%; aspect-ratio: 1.15 / 1; object-fit: cover; background: #dff7ef; }
+    .pairMissing { display: grid; place-items: center; color: var(--muted2); font-size: 12px; font-weight: 900; }
+    .pairLabel { display: block; padding: 6px 7px; font-size: 12px; font-weight: 900; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pairActions { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+    .pairActions .btn { width: 100%; min-height: 38px; padding: 6px; }
+    .pairSwap { grid-column: 1 / 3; justify-self: center; width: auto; min-height: 34px; padding: 5px 18px; margin-top: -2px; }
+    .pairRemark { grid-column: 1 / 3; text-align: center; color: var(--muted); font-size: 12px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @keyframes duePulse { from { box-shadow: 0 0 0 rgba(255, 77, 79, 0); } to { box-shadow: 0 0 0 5px rgba(255, 77, 79, .18); } }
+
     .thumb {
       width: 92px;
       height: 92px;
@@ -929,7 +942,7 @@
 
           <div class="topTitle">GhostShift</div>
           <span class="badge wait" id="saveStateBadge">พร้อมใช้งาน</span>
-          <span class="pill" id="headerGoalPill">DL: <b id="dlCountTop">0</b>/40</span>
+          <span class="pill" id="headerGoalPill">Exported: <b id="dlCountTop">0</b></span>
         </div>
 
         <!-- Line 1: Next + DownloadNext -->
@@ -987,21 +1000,15 @@
       <div class="mini muted" id="pendingEmpty" style="display:none">ยังไม่มีรายการ Pending</div>
     </section>
 
-    <section class="card">
+    <section class="card" id="progressCard">
       <h2>
-        <span>Progress (Downloaded)</span>
-        <span class="badge ok" id="goalBadge" style="display:none">ครบ 40 แล้ว ✅</span>
+        <span>สรุปการทำงาน</span>
       </h2>
 
       <div class="row spread">
         <div class="pill">Total: <b id="totalCount">0</b> • Downloaded: <b id="downloadedCount">0</b> • Pending: <b
             id="pendingCount">0</b></div>
-        <div class="pill">เป้าหมาย: <b>40</b> รูป</div>
-      </div>
-
-      <div style="height:10px"></div>
-      <div class="progressWrap">
-        <div class="progressBar" id="progressBar"></div>
+        <div class="pill">ไม่มีจำนวนรูปขั้นต่ำ</div>
       </div>
 
       <div style="height:12px"></div>
@@ -1043,10 +1050,7 @@
           <div style="height:8px"></div>
           <div class="mini muted" id="timerMeta">startAt: - • targetAt: -</div>
           <div style="height:8px"></div>
-          <div class="mini muted">
-            * รีเซ็ตเวลาได้เมื่อ “ปลดล็อค” โดยต้องมีรูปครบคู่ถึง OUT-20 (อย่างน้อย 40 รูป) และดาวน์โหลด
-            OUT-ภาพสุดท้ายแล้ว
-          </div>
+          <div class="mini muted">Target และช่วงเวลาระหว่างภาพ ตั้งค่าได้จาก Settings</div>
         </div>
 
         <div class="card" style="margin:0; box-shadow:none">
@@ -1173,6 +1177,58 @@
       </div>
 
       <div class="modalBody">
+        <div class="field">
+          <label>Target time</label>
+          <input id="targetTimeInput" type="datetime-local" />
+          <div class="mini muted">ใช้เป็นเวลาสิ้นสุดของตารางภาพทั้งหมด</div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="grid2">
+          <div class="field">
+            <label>IN → OUT (นาที)</label>
+            <div class="row" style="flex-wrap:nowrap">
+              <input id="inOutMinInput" type="number" min="0" placeholder="ขั้นต่ำ" />
+              <input id="inOutMaxInput" type="number" min="0" placeholder="สูงสุด/ไม่จำกัด" />
+            </div>
+          </div>
+          <div class="field">
+            <label>OUT → IN (นาที)</label>
+            <div class="row" style="flex-wrap:nowrap">
+              <input id="outInMinInput" type="number" min="0" placeholder="ขั้นต่ำ" />
+              <input id="outInMaxInput" type="number" min="0" placeholder="สูงสุด/ไม่จำกัด" />
+            </div>
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="switch">
+          <input type="checkbox" id="autoStartFirstDownloadToggle" />
+          <div>
+            <div style="font-weight:900;font-size:13px">เริ่มนับเวลาอัตโนมัติ</div>
+            <div class="mini muted">เริ่มเมื่อ Export ภาพ IN-1 ครั้งแรก</div>
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="switch">
+          <input type="checkbox" id="repeatAlarmSoundToggle" />
+          <div>
+            <div style="font-weight:900;font-size:13px">เล่นเสียงเตือนซ้ำ</div>
+            <div class="mini muted">ปิดไว้เพื่อเล่นเสียงเพียงครั้งเดียว</div>
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+        <button class="btn primary" id="saveScheduleSettingsBtn">บันทึกการตั้งค่าตาราง</button>
+
+        <div style="height:16px"></div>
+        <div class="mini muted" style="font-weight:900">การแจ้งเตือนผ่าน LINE (ไม่บังคับ)</div>
+        <div style="height:8px"></div>
+
         <div class="switch">
           <input type="checkbox" id="lineEnableToggle" />
           <div>
@@ -1269,7 +1325,8 @@
       timer910: "stl_timer910_state",
       alarm: "stl_alarm_state",
       ui: "stl_ui_state",
-      line: "stl_line_schedule_cfg"
+      line: "stl_line_schedule_cfg",
+      scheduleSettings: "stl_schedule_settings"
     };
 
     const state = {
@@ -1278,11 +1335,20 @@
       photos: [],
       thumbUrl: new Map(),
 
-      busy: { saving: false },
+      busy: { saving: false, exporting: false },
 
       cam: { stream: null, facing: "user" },
 
       ui: { logEnabled: false, autoWake: true, mirrorPref: true },
+
+      scheduleSettings: {
+        inOutMinMinutes: 3,
+        inOutMaxMinutes: 25,
+        outInMinMinutes: 4,
+        outInMaxMinutes: 30,
+        autoStartOnFirstDownload: false,
+        repeatAlarmSound: false
+      },
 
       replace: { active: false, targetId: null, targetTag: null },
 
@@ -1292,6 +1358,7 @@
 
       alarm: { dueAt: null, nextTag: null, firedDueAt: null },
       alarmTimeout: null,
+      alarmSoundInterval: null,
 
       schedule: {
         ok: false,
@@ -1372,6 +1439,79 @@
     }
     function saveJSON(key, obj) {
       try { localStorage.setItem(key, JSON.stringify(obj)); } catch (_) { }
+    }
+
+    function asMinutes(value, fallback) {
+      const n = Number(value);
+      return Number.isFinite(n) && n >= 0 ? n : fallback;
+    }
+
+    function asOptionalMinutes(value) {
+      if (String(value ?? "").trim() === "") return null;
+      const n = Number(value);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    }
+
+    function loadScheduleSettings() {
+      const saved = loadJSON(LS.scheduleSettings, {});
+      state.scheduleSettings = {
+        ...state.scheduleSettings,
+        ...(saved && typeof saved === "object" ? saved : {})
+      };
+    }
+
+    function saveScheduleSettings() {
+      saveJSON(LS.scheduleSettings, state.scheduleSettings);
+    }
+
+    function toDateTimeLocalValue(timestamp) {
+      if (!timestamp) return "";
+      const date = new Date(timestamp - new Date().getTimezoneOffset() * 60000);
+      return date.toISOString().slice(0, 16);
+    }
+
+    function syncScheduleSettingsUI() {
+      const s = state.scheduleSettings;
+      $("targetTimeInput").value = toDateTimeLocalValue(state.timer910.targetAt);
+      $("inOutMinInput").value = s.inOutMinMinutes;
+      $("inOutMaxInput").value = s.inOutMaxMinutes ?? "";
+      $("outInMinInput").value = s.outInMinMinutes;
+      $("outInMaxInput").value = s.outInMaxMinutes ?? "";
+      $("autoStartFirstDownloadToggle").checked = !!s.autoStartOnFirstDownload;
+      $("repeatAlarmSoundToggle").checked = !!s.repeatAlarmSound;
+    }
+
+    function saveScheduleSettingsFromUI() {
+      const targetValue = $("targetTimeInput").value;
+      const targetAt = targetValue ? new Date(targetValue).getTime() : null;
+      if (targetValue && (!Number.isFinite(targetAt) || targetAt <= now())) {
+        showToast("ตั้งเวลา Target ไม่สำเร็จ", "กรุณาเลือกเวลาที่อยู่ในอนาคต", 3500);
+        return;
+      }
+
+      const inOutMin = asMinutes($("inOutMinInput").value, 3);
+      const outInMin = asMinutes($("outInMinInput").value, 4);
+      const inOutMax = asOptionalMinutes($("inOutMaxInput").value);
+      const outInMax = asOptionalMinutes($("outInMaxInput").value);
+      if ((inOutMax != null && inOutMax < inOutMin) || (outInMax != null && outInMax < outInMin)) {
+        showToast("ช่วงเวลาไม่ถูกต้อง", "ค่าสูงสุดต้องไม่น้อยกว่าค่าขั้นต่ำ", 3500);
+        return;
+      }
+
+      state.scheduleSettings = {
+        inOutMinMinutes: inOutMin,
+        inOutMaxMinutes: inOutMax,
+        outInMinMinutes: outInMin,
+        outInMaxMinutes: outInMax,
+        autoStartOnFirstDownload: $("autoStartFirstDownloadToggle").checked,
+        repeatAlarmSound: $("repeatAlarmSoundToggle").checked
+      };
+      state.timer910.targetAt = targetAt;
+      saveScheduleSettings();
+      saveTimer910();
+      syncScheduleSettingsUI();
+      heavyRender("scheduleSettings");
+      showToast("บันทึกการตั้งค่าแล้ว", targetAt ? `Target ${fmtDT(targetAt)}` : "จะใช้เวลาเริ่มต้น +9ชม.10นาที", 3000);
     }
 
     function setSaveState(text, mode) {
@@ -2215,14 +2355,16 @@
 
     function startTimer910() {
       const startAt = now();
-      const targetAt = startAt + TIMER_910_MS;
-      state.timer910 = { running: true, locked: true, startAt, targetAt };
+      const targetAt = state.timer910.targetAt && state.timer910.targetAt > startAt
+        ? state.timer910.targetAt
+        : startAt + TIMER_910_MS;
+      state.timer910 = { running: true, locked: false, startAt, targetAt };
       saveTimer910();
       log("Timer start", fmtDT(startAt), "->", fmtDT(targetAt));
     }
 
     function resetTimer910ToReady() {
-      state.timer910 = { running: false, locked: false, startAt: null, targetAt: null };
+      state.timer910 = { ...state.timer910, running: false, locked: false, startAt: null };
       saveTimer910();
 
       state.alarm = { dueAt: null, nextTag: null, firedDueAt: null };
@@ -2242,9 +2384,6 @@
         heavyRender("timerStart");
         return;
       }
-
-      // running: reset allowed only when UNLOCKED
-      if (state.timer910.locked) return;
 
       resetTimer910ToReady();
       heavyRender("timerReset");
@@ -2281,8 +2420,13 @@
     // =========================
     // Schedule math (Exact fit)
     // =========================
-    function minGapMinutes(kind) { return (kind === "IN") ? 3 : 4; }
-    function maxGapMinutes(kind) { return (kind === "IN") ? 25 : 30; }
+    function minGapMinutes(kind) {
+      return kind === "IN" ? state.scheduleSettings.inOutMinMinutes : state.scheduleSettings.outInMinMinutes;
+    }
+    function maxGapMinutes(kind) {
+      const max = kind === "IN" ? state.scheduleSettings.inOutMaxMinutes : state.scheduleSettings.outInMaxMinutes;
+      return max == null ? Infinity : max;
+    }
 
     function buildContiguousPendingChain(nextExpected, pendingByTag, limit = 200) {
       const chain = [];
@@ -2305,35 +2449,29 @@
     function solveExactAB(totalMin, nIn, nOut) {
       if (nIn === 0 && nOut === 0) return { ok: false, a: null, b: null };
 
+      const minA = minGapMinutes("IN"), maxA = maxGapMinutes("IN");
+      const minB = minGapMinutes("OUT"), maxB = maxGapMinutes("OUT");
+      const clamp = (value, lower, upper) => Math.max(lower, Math.min(upper, value));
+
       if (nOut === 0) {
         const a = totalMin / Math.max(1, nIn);
-        const ok = (a >= 3 && a <= 25);
-        return { ok, a: Math.max(3, Math.min(25, a)), b: null };
+        const ok = a >= minA && a <= maxA;
+        return { ok, a: clamp(a, minA, maxA), b: null };
       }
       if (nIn === 0) {
         const b = totalMin / Math.max(1, nOut);
-        const ok = (b >= 4 && b <= 30);
-        return { ok, a: null, b: Math.max(4, Math.min(30, b)) };
+        const ok = b >= minB && b <= maxB;
+        return { ok, a: null, b: clamp(b, minB, maxB) };
       }
 
       const mean = totalMin / (nIn + nOut);
-      let best = { ok: false, a: null, b: null, score: 1e18 };
-
-      for (let a = 3; a <= 25.0001; a += 0.01) {
-        const b = (totalMin - a * nIn) / nOut;
-        if (b < 4 || b > 30) continue;
-        if (!(b > a + 0.001)) continue;
-        const score = Math.abs(a - mean) + Math.abs(b - mean) + 0.08 * Math.abs(b - a);
-        if (score < best.score) {
-          best = { ok: true, a, b, score };
-        }
+      let a = clamp(mean - 0.5, minA, maxA);
+      let b = (totalMin - a * nIn) / nOut;
+      if (b < minB || b > maxB) {
+        b = clamp(b, minB, maxB);
+        a = (totalMin - b * nOut) / nIn;
       }
-
-      if (best.ok) return best;
-      const a0 = Math.max(3, Math.min(25, mean - 1));
-      const b0 = Math.max(4, Math.min(30, mean + 1));
-      const bAdj = (b0 <= a0) ? Math.min(30, a0 + 0.25) : b0;
-      return { ok: false, a: a0, b: bAdj };
+      return { ok: a >= minA && a <= maxA && b >= minB && b <= maxB, a: clamp(a, minA, maxA), b: clamp(b, minB, maxB) };
     }
 
     function distributeMsToMatchTotal(gapsMs, kinds, totalMs) {
@@ -2341,24 +2479,14 @@
       let diff = totalMs - sum;
       if (diff === 0) return gapsMs;
 
-      let safety = 200000;
-      while (diff !== 0 && safety-- > 0) {
-        let moved = false;
-        for (let i = gapsMs.length - 1; i >= 0 && diff !== 0; i--) {
-          const kind = kinds[i];
-          const minMs = Math.round(minGapMinutes(kind) * 60000);
-          const maxMs = Math.round(maxGapMinutes(kind) * 60000);
-          if (diff > 0) {
-            if (gapsMs[i] < maxMs) {
-              gapsMs[i] += 1; diff -= 1; moved = true;
-            }
-          } else {
-            if (gapsMs[i] > minMs) {
-              gapsMs[i] -= 1; diff += 1; moved = true;
-            }
-          }
-        }
-        if (!moved) break;
+      for (let i = gapsMs.length - 1; i >= 0 && diff !== 0; i--) {
+        const kind = kinds[i];
+        const minMs = Math.round(minGapMinutes(kind) * 60000);
+        const maxMs = Math.round(maxGapMinutes(kind) * 60000);
+        const room = diff > 0 ? maxMs - gapsMs[i] : gapsMs[i] - minMs;
+        const moved = Math.min(Math.abs(diff), Math.max(0, room));
+        gapsMs[i] += diff > 0 ? moved : -moved;
+        diff += diff > 0 ? -moved : moved;
       }
       return gapsMs;
     }
@@ -2557,21 +2685,37 @@
     function vibratePattern() {
       try { if (navigator.vibrate) navigator.vibrate([120, 70, 120]); } catch (_) { }
     }
+    function stopAlarmSound() {
+      if (state.alarmSoundInterval) {
+        clearInterval(state.alarmSoundInterval);
+        state.alarmSoundInterval = null;
+      }
+    }
     function beepSoft() {
+      stopAlarmSound();
       vibratePattern();
       beepOnce(0.12, 880);
       setTimeout(() => beepOnce(0.12, 990), 170);
+      if (state.scheduleSettings.repeatAlarmSound) {
+        state.alarmSoundInterval = setInterval(() => {
+          vibratePattern();
+          beepOnce(0.12, 880);
+          setTimeout(() => beepOnce(0.12, 990), 170);
+        }, 2500);
+      }
     }
 
     function showToast(text, sub, autoHideMs = 6500) {
+      stopAlarmSound();
       $("toastText").textContent = text;
       $("toastSub").textContent = sub || "";
       $("toastWrap").classList.add("show");
       if (state.toastTimer) clearTimeout(state.toastTimer);
-      state.toastTimer = setTimeout(() => hideToast(), autoHideMs);
+      if (autoHideMs > 0) state.toastTimer = setTimeout(() => hideToast(), autoHideMs);
     }
     function hideToast() {
       $("toastWrap").classList.remove("show");
+      stopAlarmSound();
       if (state.toastTimer) {
         clearTimeout(state.toastTimer);
         state.toastTimer = null;
@@ -2624,7 +2768,7 @@
       const nextTag = state.alarm.nextTag || "-";
       const msg = nextTag.startsWith("OUT-") ? "ครบเวลา Check Out ได้แล้ว" : "ครบเวลา Check In ได้แล้ว";
 
-      showToast(msg, `Next: ${nextTag}`);
+      showToast(msg, `Next: ${nextTag}`, state.scheduleSettings.repeatAlarmSound ? 0 : 6500);
       tryNotify(`${msg} • Next: ${nextTag}`);
       beepSoft();
       log("ALARM FIRED:", msg, "dueAt=", fmtDT(dueAt));
@@ -2647,23 +2791,17 @@
     // =========================
     // Download & mark downloaded
     // =========================
-    async function maybeUnlockAfterDownload(photo) {
-      if (!state.timer910.running) return;
-      if (!state.timer910.locked) return;
+    async function maybeUnlockAfterDownload(_photo) { }
 
-      const maxPair = getUnlockMaxPairIfEligible();
-      if (!maxPair) return;
-
-      if (photo.tag === `OUT-${maxPair}`) {
-        state.timer910.locked = false;
-        saveTimer910();
-        showToast("ปลดล็อคแล้ว ✅", "กดปุ่ม “สิ้นสุด …” เพื่อรีเซ็ตเวลาได้", 5200);
-        log("UNLOCKED by final OUT:", photo.tag, "maxPair=", maxPair);
-      }
+    function exportFilename(photo) {
+      const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+      return `GhostShift_${photo.tag}_${stamp}_${photo.id}.jpg`;
     }
 
     async function downloadPhoto(photo) {
-      const filename = `${photo.tag}.jpg`;
+      if (state.busy.exporting) return;
+      state.busy.exporting = true;
+      const filename = exportFilename(photo);
 
       const url = URL.createObjectURL(photo.blob);
       try {
@@ -2673,34 +2811,30 @@
         document.body.appendChild(a);
         a.click();
         a.remove();
+        const wasFirstTime = (photo.downloaded !== 1);
+
+        if (wasFirstTime) {
+          const t = now();
+          await dbUpdatePhoto(photo.id, { downloaded: 1, downloadedAt: t });
+          photo.downloaded = 1;
+          photo.downloadedAt = t;
+          log("Marked downloaded (first time):", photo.tag);
+
+          if (photo.tag === "IN-1" && state.scheduleSettings.autoStartOnFirstDownload && !state.timer910.running) {
+            startTimer910();
+          }
+
+          heavyRender("downloadFirstTime");
+
+          if (photo.tag === "IN-1") void lineNotifyStartDayIfNeeded();
+          void lineScheduleNextFromCurrentSchedule("first-time download");
+          showToast("Export สำเร็จ", `${photo.tag} • ${filename}`, 2800);
+        } else {
+          log("Downloaded again:", photo.tag);
+        }
       } finally {
         URL.revokeObjectURL(url);
-      }
-
-      const wasFirstTime = (photo.downloaded !== 1);
-
-      if (wasFirstTime) {
-        const t = now();
-        await dbUpdatePhoto(photo.id, { downloaded: 1, downloadedAt: t });
-        photo.downloaded = 1;
-        photo.downloadedAt = t;
-        log("Marked downloaded (first time):", photo.tag);
-
-        // unlock rule check
-        await maybeUnlockAfterDownload(photo);
-
-        // Re-render (updates schedule)
-        heavyRender("downloadFirstTime");
-
-        // LINE: send start-day only when IN-1 downloaded first time of day
-        if (photo.tag === "IN-1") {
-          void lineNotifyStartDayIfNeeded();
-        }
-
-        // Schedule next via Worker (and overwrite if changed)
-        void lineScheduleNextFromCurrentSchedule("first-time download");
-      } else {
-        log("Downloaded again:", photo.tag);
+        state.busy.exporting = false;
       }
     }
 
@@ -2719,11 +2853,14 @@
       }
       if (!chosen) chosen = pending[0];
 
+      if (state.busy.exporting) return;
       btn.disabled = true;
+      btn.textContent = "กำลังบันทึก…";
       try {
         await downloadPhoto(chosen);
       } finally {
         btn.disabled = false;
+        renderHeaderStatus();
       }
     }
 
@@ -2978,13 +3115,8 @@
     function renderTimerPanel() {
       const b = $("timerLockBadge");
       if (state.timer910.running) {
-        if (state.timer910.locked) {
-          b.className = "badge err";
-          b.textContent = "LOCKED";
-        } else {
-          b.className = "badge ok";
-          b.textContent = "UNLOCKED";
-        }
+        b.className = "badge ok";
+        b.textContent = "RUNNING";
       } else {
         b.className = "badge ok";
         b.textContent = "READY";
@@ -2998,9 +3130,11 @@
         startBtn.textContent = "⏱️ เริ่มนับเวลา";
         startBtn.disabled = false;
       } else {
-        startBtn.textContent = `สิ้นสุด ${fmtTimeOnly(state.timer910.targetAt)}`;
-        // รีเซ็ตได้เฉพาะตอน UNLOCKED
-        startBtn.disabled = !!state.timer910.locked;
+        const finalPhotoAt = Array.from(state.schedule.planAtById.values()).pop();
+        startBtn.textContent = finalPhotoAt
+          ? `ภาพสุดท้ายอีก ${fmtHMS(finalPhotoAt - now())}`
+          : `สิ้นสุด ${fmtTimeOnly(state.timer910.targetAt)}`;
+        startBtn.disabled = false;
       }
 
       if (state.timer910.running && state.timer910.targetAt) {
@@ -3011,11 +3145,7 @@
     }
 
     function renderProgressBar() {
-      // FIX: Progress = downloaded (ไม่ใช่ total)
-      const { downloaded } = computeCounts();
-      const prog = Math.min(40, downloaded);
-      $("progressBar").style.width = `${(prog / 40) * 100}%`;
-      $("goalBadge").style.display = (downloaded >= 40) ? "" : "none";
+      // No fixed photo target: counts are the useful progress signal.
     }
 
     function renderHeaderStatus() {
@@ -3082,6 +3212,118 @@
       }
     }
 
+    function pairGroups(photos) {
+      const pairs = new Map();
+      photos.map(ensureKindIdx).forEach(photo => {
+        const pair = pairs.get(photo.idx) || { idx: photo.idx, in: null, out: null };
+        if (photo.kind === "IN") pair.in = photo;
+        else pair.out = photo;
+        pairs.set(photo.idx, pair);
+      });
+      return Array.from(pairs.values()).sort((a, b) => a.idx - b.idx);
+    }
+
+    async function savePairRemark(pair, value) {
+      const remark = String(value || "").trim();
+      const photos = [pair.in, pair.out].filter(Boolean);
+      await Promise.all(photos.map(photo => dbUpdatePhoto(photo.id, { remark })));
+      photos.forEach(photo => { photo.remark = remark; });
+      heavyRender("pairRemark");
+    }
+
+    async function swapPairContents(pair) {
+      if (!pair.in || !pair.out || pair.in.downloaded || pair.out.downloaded) return;
+      const inPhoto = pair.in, outPhoto = pair.out;
+      const inContent = { blob: inPhoto.blob, mime: inPhoto.mime, width: inPhoto.width, height: inPhoto.height, size: inPhoto.size, createdAt: inPhoto.createdAt };
+      const outContent = { blob: outPhoto.blob, mime: outPhoto.mime, width: outPhoto.width, height: outPhoto.height, size: outPhoto.size, createdAt: outPhoto.createdAt };
+      await dbUpdatePhoto(inPhoto.id, outContent);
+      await dbUpdatePhoto(outPhoto.id, inContent);
+      Object.assign(inPhoto, outContent);
+      Object.assign(outPhoto, inContent);
+      revokeThumbUrl(inPhoto.id);
+      revokeThumbUrl(outPhoto.id);
+      heavyRender("swapPair");
+    }
+
+    function choosePairPhoto(pair, action) {
+      const options = [pair.in, pair.out].filter(Boolean);
+      if (!options.length) return null;
+      if (options.length === 1) return options[0];
+      const choice = prompt(`${action} ภาพใด? พิมพ์ IN หรือ OUT`, "IN");
+      return choice && choice.trim().toUpperCase() === "OUT" ? pair.out : pair.in;
+    }
+
+    function renderPairCard(pair, isDownloaded, planMap) {
+      const card = document.createElement("div");
+      card.className = "pairCard";
+      const remark = pair.in?.remark || pair.out?.remark || "";
+      [pair.in, pair.out].forEach((photo, index) => {
+        const slot = document.createElement("div");
+        const due = photo && !photo.downloaded && planMap.get(photo.id) && planMap.get(photo.id) <= now();
+        slot.className = `pairSlot${due ? " due" : ""}${photo?.downloaded ? " exported" : ""}`;
+        if (photo) {
+          const image = document.createElement("img");
+          image.className = "pairImage";
+          image.src = getThumbUrl(photo);
+          image.alt = photo.tag;
+          image.onclick = () => openImageViewer(image.src);
+          slot.appendChild(image);
+          const label = document.createElement("span");
+          label.className = "pairLabel";
+          const planned = !photo.downloaded ? planMap.get(photo.id) : null;
+          label.textContent = `${photo.tag} • ${photo.downloaded ? "EXPORTED" : planned ? fmtTimeOnly(planned) : "Pending"}`;
+          slot.appendChild(label);
+        } else {
+          const missing = document.createElement("div");
+          missing.className = "pairMissing";
+          missing.textContent = `${index === 0 ? "IN" : "OUT"}-${pair.idx} ยังไม่มีรูป`;
+          slot.appendChild(missing);
+        }
+        card.appendChild(slot);
+      });
+      if (!isDownloaded) {
+        const actions = document.createElement("div");
+        actions.className = "pairActions";
+        const edit = document.createElement("button");
+        edit.className = "btn soft";
+        edit.textContent = "✏️";
+        edit.onclick = async () => {
+          const photo = choosePairPhoto(pair, "แก้ไข");
+          if (!photo) return;
+          const newRemark = prompt("Remark ของคู่นี้ (เว้นว่างเพื่อล้าง)", remark);
+          if (newRemark !== null) await savePairRemark(pair, newRemark);
+          if (!confirm(`ต้องการแทนที่รูป ${photo.tag} ด้วยหรือไม่?`)) return;
+          state.replace.active = true;
+          state.replace.targetId = photo.id;
+          state.replace.targetTag = photo.tag;
+          await openCamera(true);
+        };
+        const remove = document.createElement("button");
+        remove.className = "btn danger";
+        remove.textContent = "🗑";
+        remove.onclick = async () => {
+          const photo = choosePairPhoto(pair, "ลบ");
+          if (photo && confirm(`ลบ ${photo.tag} ใช่ไหม?`)) await deletePhoto(photo.id, photo.tag);
+        };
+        actions.append(edit, remove);
+        card.appendChild(actions);
+        if (pair.in && pair.out && !pair.in.downloaded && !pair.out.downloaded) {
+          const swap = document.createElement("button");
+          swap.className = "btn soft pairSwap";
+          swap.textContent = "↔ สลับ IN / OUT";
+          swap.onclick = () => swapPairContents(pair);
+          card.appendChild(swap);
+        }
+      }
+      if (remark) {
+        const text = document.createElement("div");
+        text.className = "pairRemark";
+        text.textContent = remark;
+        card.appendChild(text);
+      }
+      return card;
+    }
+
     function renderLists() {
       const pendingList = $("pendingList");
       pendingList.innerHTML = "";
@@ -3089,11 +3331,9 @@
       const downloadedList = $("downloadedList");
       downloadedList.innerHTML = "";
 
-      const pending = state.photos.filter(p => p.downloaded === 0).map(ensureKindIdx);
-      const downloaded = state.photos.filter(p => p.downloaded === 1).map(ensureKindIdx);
-
-      pending.sort(sortSlot);
-      downloaded.sort(sortSlot);
+      const pairs = pairGroups(state.photos);
+      const pending = pairs.filter(pair => !pair.in || !pair.out || !pair.in.downloaded || !pair.out.downloaded);
+      const downloaded = pairs.filter(pair => pair.in && pair.out && pair.in.downloaded && pair.out.downloaded);
 
       $("pendingBadge").textContent = pending.length;
       $("pendingEmpty").style.display = pending.length ? "none" : "";
@@ -3103,8 +3343,8 @@
 
       const planMap = state.schedule.planAtById || new Map();
 
-      for (const p of pending) pendingList.appendChild(renderPhotoItem(p, false, planMap));
-      for (const p of downloaded) downloadedList.appendChild(renderPhotoItem(p, true, planMap));
+      for (const pair of pending) pendingList.appendChild(renderPairCard(pair, false, planMap));
+      for (const pair of downloaded) downloadedList.appendChild(renderPairCard(pair, true, planMap));
 
       const { total, downloaded: dlCount, pending: pendCount } = computeCounts();
       $("totalCount").textContent = total;
@@ -3296,6 +3536,7 @@
     // =========================
     async function boot() {
       loadUIState();
+      loadScheduleSettings();
       loadTimer910();
       loadAlarmState();
       loadLineCfg();
@@ -3317,6 +3558,8 @@
 
       await initDB();
       await refresh();
+
+      syncScheduleSettingsUI();
 
       installResizeObservers();
       measureBars();
@@ -3358,6 +3601,7 @@
       });
 
       $("downloadNextBtn").onclick = downloadNextFromHeader;
+      $("saveScheduleSettingsBtn").onclick = saveScheduleSettingsFromUI;
 
       $("openDrawerBtn").onclick = openDrawer;
       $("closeDrawerBtn").onclick = closeDrawer;
