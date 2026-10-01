@@ -34,7 +34,7 @@ not as retroactive completion of the historical gate. CVS_SME remains untouched.
 
 | Resource | Current state |
 | --- | --- |
-| Worker | `cvs-phantom-api-dev` (historical name), deployed version `c13b8796-7e0a-45cb-af3a-aee296d77528` |
+| Worker | `cvs-phantom-api-dev` (historical name), deployed version `056de3be-3203-43e3-bf34-4fe17ee41080` |
 | Worker schedule | `*/5 * * * *`; production Sheet pull is gated to UTC minutes divisible by 15 |
 | D1 | `cvs-phantom-db-dev` (historical name), now holding production CVS_PHANToM state |
 | D1 migrations | `0001_init.sql` through `0004_auth_rate_limit.sql` |
@@ -53,7 +53,7 @@ Secrets remain outside Git. Worker secret names include `BRIDGE_URL`,
 
 ## Implemented
 
-- Authenticated DEV API reads and operational writes backed by D1.
+- Production Worker API reads and operational writes backed by D1.
 - Composite store identity `(team_id, store_id)`.
 - Independent versions for master, noted, route, location, and visit state.
 - Persistent API idempotency receipts.
@@ -65,91 +65,84 @@ Secrets remain outside Git. Worker secret names include `BRIDGE_URL`,
 - Sheet reconciliation that distinguishes unchanged Sheet shadow from an intentional
   manual Sheet edit and can supersede dead conflict jobs.
 - Stale-snapshot protection using `generatedAt`.
-- DEV allowlists for teams and report-config accounts.
-- Worker Cron pull of a fresh staging Sheet snapshot every 15 minutes. The bridge
-  exposes a read-only `getFreshSheetSnapshot` action; Apps Script no longer needs
-  `UrlFetchApp` or `ScriptApp` trigger permissions for reconciliation. Remote D1
-  audit evidence confirms scheduled pulls at 10:15 and 10:30 Asia/Bangkok.
-- Admin reset/report-config mutation gates remain closed except during a bounded DEV
-  test where the config is immediately restored to `0`.
+- Production allowlists for the three CVS_PHANToM teams and approved report accounts.
+- Worker Cron runs every five minutes; a complete signed production Sheet snapshot is
+  reconciled every 15 minutes through the read-only `getFreshSheetSnapshot` bridge action.
+- Browser-safe user/admin authentication uses access codes only at login; the browser
+  receives a signed 12-hour session token and never receives the service token.
+- Main page, Report, and Report Admin use Worker/D1 by default. `?backend=legacy`
+  retains the Apps Script path as the emergency rollback.
+- Report-config writes require an `admin` or `service` role.
+- No-op snapshot reconciliation skips unchanged team/store/config rows to protect the
+  D1 write quota; regression coverage is in `test/d1-write-regression.mjs`.
 
 ## Verified Evidence
 
 Local/static verification:
 
 - `node --check` passes for Worker and bridge source.
-- `worker-smoke.mjs` passes.
-- `bridge-smoke.cjs` passes.
+- `worker-smoke.mjs`, `bridge-smoke.cjs`, and `d1-write-regression.mjs` pass.
 - `git diff --check` passes.
-- A fresh local D1 applies `0001 -> 0002 -> 0003` successfully and produces the
-  current required schema, including `sync_leases`, `inbound_nonces`,
-  `sheet_*_version`, `report_config_sets.sheet_version`, and outbox `dead` status.
+- A fresh local D1 applies migrations `0001` through `0004` successfully.
 
-Remote DEV integration evidence:
+Production integration evidence:
 
-- Bridge fresh snapshot returns `complete=true`, 1 team, 120 stores, and 8 report
-  config accounts.
-- Route: write -> Sheet projection -> idempotent retry -> stale-version 409 -> restore
-  passed on current Worker/bridge contract.
-- Noted: UTF-8 write -> Sheet projection -> restore passed.
-- Location: write -> Sheet projection -> restore passed.
-- Report config: temporary DEV admin enable -> write -> projection -> idempotent retry
-  -> stale 409 -> restore passed; another account remained unchanged. Admin mutations
-  were then redeployed back to `0`.
-- Snapshot security: bad signature -> 401; a correctly signed invalid snapshot -> 400;
-  replay of the same nonce -> 409 `REPLAYED_SHEET_NONCE`.
-- After E2E restore, D1 and staging Sheet matched for all 120 active stores with
-  **0 version-hash mismatches** across master/noted/route/location/visit.
-- Manual Sheet -> D1 reconciliation passed on staging: `DB_GBKK4!J2` was changed
-  from route `1` to a temporary test value, reconciled into D1 with matching
-  `route_version` / `sheet_route_version`, restored to `1`, reconciled again,
-  and full 120-store parity returned to 0 mismatches.
-- Remote Cron reconciliation produced fresh `sheet_snapshot` audit events with
-  120 stores, 8 config accounts, 505 config items, and `superseded=0`.
+- Worker `/health` reports `environment=production`, `backend=d1`, and all
+  authentication/bridge configuration flags enabled.
+- Worker `/internal/status` reports 3 teams, 674 stores, and 20 completed outbox
+  jobs with no pending/error/dead rows reported.
+- A complete signed production Sheet pull returns 3 teams, 674 stores, 8 report
+  config accounts, 505 config items, and `superseded=0`.
+- User session authentication can read the three teams but receives 403 from an
+  admin endpoint; an admin session is recognized as `admin`.
+- CORS preflight succeeds for the production Vercel and GitHub Pages origins and is
+  rejected for an unapproved origin.
+- Production Vercel checks returned HTTP 200 for the main page, authentication
+  assets, Report Admin, and Report; Worker references were present in each expected page.
+- A LAWSON report-config no-op write was verified end-to-end with a stable version
+  and completed Sheet projection.
+- The no-op D1 quota fix is verified directly: after a successful production Sheet
+  pull, `MAX(updated_at)` remained exactly unchanged for all three reconciled tables:
+  stores `2026-10-01T04:56:16.386Z`, teams `2026-10-01T09:45:12.394Z`, and
+  report config `2026-10-01T07:02:22.700Z`. The verification query itself wrote
+  zero rows. This proves an unchanged snapshot no longer rewrites the 674 stores.
+- Commit `a1ec499` contains the D1 no-op write fix and is pushed to `origin/main`.
 
-All current remote projection jobs are `done`; the latest status query showed 17
-done and no error/dead outbox rows.
+Historical isolated DEV evidence remains useful for the Worker/bridge contract:
+route, noted, location, report-config projection/retry/conflict/restore tests passed;
+snapshot bad-signature, malformed-payload, and replay protections passed; staging
+Sheet/D1 parity returned to zero mismatches after reversible tests.
 
-## Remaining Verification Before Frontend Work
+## Current Production State
 
-1. Exercise the visit/reset recovery path with a fixture that can be restored safely;
-   do not use production data.
-2. Confirm error/dead-letter recovery with a controlled DEV bridge failure.
-3. Record an explicit release/recovery checklist and a Git checkpoint.
+The production cutover is complete. Worker/D1 is the default path for the main page,
+Report, and Report Admin. The frontend obtains short-lived signed session tokens from
+the Worker and does not contain `DEV_API_TOKEN` or other Worker secrets.
 
-Cron Sheet pull, reversible manual Sheet -> D1 reconciliation, restore, and final
-120-store parity have now been verified.
+`?backend=legacy` remains the immediate browser rollback to the prior Apps Script
+path. CVS_SME remains a separate deployment and was not modified or connected.
 
-## Frontend Pilot Scaffold
-
-`index.html` now calls its existing API helpers through `Tools/backend-client.js`.
-The default mode remains the existing Apps Script JSONP path, so no browser traffic
-uses the Worker. The adapter preserves legacy response shapes and adds persistent
-operation IDs to existing visit/noted outbox records; old queued records are migrated
-in place when read. A future Worker pilot requires an in-memory, browser-safe
-authorization provider. It does not read, store, or ship `DEV_API_TOKEN`.
-
-Worker mode is therefore intentionally unavailable until a browser identity/session
-mechanism is deployed and browser E2E coverage verifies authentication, CORS,
-idempotent replay, version conflicts, and fallback behavior.
+The D1 `rows_written_24h` metric still contains historical writes from before the
+quota fix and therefore decays on a rolling 24-hour window. Judge the fix by direct
+no-op reconciliation evidence rather than expecting that rolling metric to reset
+immediately.
 
 ## Known Boundaries
 
-- The shared DEV bearer token is not production user/role authorization.
-- Production frontend cutover is not approved.
-- Production Sheets/App Script are not part of this DEV backend.
-- CVS_SME must not share Worker, D1, bridge, secrets, or team data with CVS_PHANToM.
-- Phase 0 production workload evidence remains incomplete. The D1 DEV experiment is
-  technical validation, not proof that D1 is required at production scale.
-- Browser visit/noted outboxes retain the Apps Script default path; their persistent
-  operation IDs are ready for a future Worker pilot but are not yet sent to Worker.
-- Route/location remain online-only in the existing frontend.
-- The Worker Cron pull architecture currently uses full snapshots. At present scale
-  (120 staging stores) this is intentionally simple; larger future datasets require
-  measurement before reuse.
+- Phase 0 historical workload measurements (representative p50/p95, failure rate,
+  active users, and quota baseline) were never completed before the owner-authorized
+  production cutover; do not rewrite history to mark that gate complete.
+- Production still relies on the Apps Script bridge and Google Sheet as the external
+  projection/source-reconciliation layer.
+- Full Sheet snapshots remain intentionally simple at the present 674-store scale;
+  re-measure before reusing this design for materially larger datasets.
+- Keep all session/access/service/bridge secrets outside Git.
+- Do not merge CVS_SME resources, data, secrets, or deployment paths into CVS_PHANToM.
 
 ## Safe Next Action
 
-Finish the remaining isolated DEV reconciliation/recovery tests, then create a clean
-Git checkpoint. Do not enable the dormant Worker adapter or connect `Tools/*` to the
-Worker until browser-safe authentication is available.
+Operate the current production path without further architecture changes while
+observing Worker health, outbox state, Sheet reconciliation, and the rolling D1
+write metric during normal live usage. Preserve `?backend=legacy` during this
+stabilization window. Any future mutation/recovery test that can affect production
+data must have an explicit reversible fixture and restore check.

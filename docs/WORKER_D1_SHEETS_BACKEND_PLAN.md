@@ -15,7 +15,7 @@ while all users were stopped for the cutover. Read `Implementation Progress` and
 | Work item | Status | Evidence / boundary |
 | --- | --- | --- |
 | Cloudflare tooling and account authentication | Complete | `wrangler 4.144.0` authenticated against the approved account. Credentials stay outside Git. |
-| Worker operational API | Production cutover deployed | Worker `cvs-phantom-api-dev` is operationally serving production data despite its historical `-dev` name. Current deployed version after auth/retry hardening: `c13b8796-7e0a-45cb-af3a-aee296d77528`. |
+| Worker operational API | Production cutover deployed | Worker `cvs-phantom-api-dev` is operationally serving production data despite its historical `-dev` name. Current deployed version after D1 no-op write hardening: `056de3be-3203-43e3-bf34-4fe17ee41080`. |
 | D1 foundation | Production data loaded / migrations reproducible | `cvs-phantom-db-dev` contains production CVS_PHANToM data. Migrations `0001` through `0004_auth_rate_limit.sql` apply cleanly to a fresh local D1 and are applied remotely. |
 | Apps Script bridge | Production Sheet target verified | Signed bridge reads the production `CVS_PHANToM` spreadsheet. A complete production snapshot returned 3 teams, 674 stores, 8 config accounts and 505 config items. |
 | Sheet -> D1 reconciliation | Production enabled | Worker Cron runs every 5 minutes; every 15 minutes it pulls a complete signed Sheet snapshot. Snapshot reads retry up to 3 times to tolerate transient Apps Script non-JSON responses. |
@@ -29,10 +29,11 @@ while all users were stopped for the cutover. Read `Implementation Progress` and
 
 ### Current Safe Next Action
 
-Finish the frontend commit/push and verify the Vercel deployment at
-`https://sme-cvse20.vercel.app` with user and admin sessions. Then monitor Worker
-health, outbox errors/dead rows and Sheet reconciliation during the first live usage
-window.
+The frontend commit/push and Vercel verification are complete. Keep the present
+production architecture stable while monitoring Worker health, outbox error/dead
+rows, Sheet reconciliation and the rolling D1 write metric during normal live usage.
+The no-op snapshot fix is commit `a1ec499`; an unchanged production snapshot was
+verified not to change team/store/report-config timestamps.
 
 ### Production Safety Boundaries
 
