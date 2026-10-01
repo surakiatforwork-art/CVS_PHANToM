@@ -1261,9 +1261,15 @@ async function handleSheetSnapshot(request, env) {
   );
 
   const statements = [];
+  const teamsJson = JSON.stringify(normalizedTeams);
   statements.push(env.DB.prepare(
-    `UPDATE teams SET active=0,updated_at=? WHERE active=1`
-  ).bind(now));
+    `UPDATE teams
+        SET active=0,updated_at=?
+      WHERE active=1
+        AND team_id NOT IN (
+          SELECT json_extract(value,'$.team_id') FROM json_each(?)
+        )`
+  ).bind(now, teamsJson));
   statements.push(env.DB.prepare(
     `INSERT INTO teams(team_id,name,source_sheet,active,updated_at)
      SELECT json_extract(value,'$.team_id'),json_extract(value,'$.name'),
@@ -1271,14 +1277,22 @@ async function handleSheetSnapshot(request, env) {
        FROM json_each(?)
       WHERE true
      ON CONFLICT(team_id) DO UPDATE SET
-       name=excluded.name,source_sheet=excluded.source_sheet,active=1,updated_at=excluded.updated_at`
-  ).bind(JSON.stringify(normalizedTeams)));
+       name=excluded.name,source_sheet=excluded.source_sheet,active=1,updated_at=excluded.updated_at
+     WHERE teams.name IS NOT excluded.name
+        OR teams.source_sheet IS NOT excluded.source_sheet
+        OR teams.active IS NOT 1`
+  ).bind(teamsJson));
 
   for (const team of normalizedTeams) {
-    statements.push(env.DB.prepare(
-      "UPDATE stores SET source_active=0,updated_at=? WHERE team_id=? AND source_active=1"
-    ).bind(now, team.team_id));
     const storesJson = JSON.stringify(normalizedByTeam.get(team.team_id) || []);
+    statements.push(env.DB.prepare(
+      `UPDATE stores
+          SET source_active=0,updated_at=?
+        WHERE team_id=? AND source_active=1
+          AND store_id NOT IN (
+            SELECT json_extract(value,'$.store_id') FROM json_each(?)
+          )`
+    ).bind(now, team.team_id, storesJson));
     statements.push(env.DB.prepare(
       `INSERT INTO stores(
         team_id,store_id,name,location_raw,lat,lng,maps_url,account,number,account_name,
@@ -1306,7 +1320,17 @@ async function handleSheetSnapshot(request, env) {
         route_version=excluded.route_version,location_version=excluded.location_version,
         visit_version=excluded.visit_version,sheet_noted_version=excluded.sheet_noted_version,
         sheet_route_version=excluded.sheet_route_version,sheet_location_version=excluded.sheet_location_version,
-        sheet_visit_version=excluded.sheet_visit_version,source_active=1,updated_at=excluded.updated_at`
+        sheet_visit_version=excluded.sheet_visit_version,source_active=1,updated_at=excluded.updated_at
+       WHERE stores.master_version IS NOT excluded.master_version
+          OR stores.noted_version IS NOT excluded.noted_version
+          OR stores.route_version IS NOT excluded.route_version
+          OR stores.location_version IS NOT excluded.location_version
+          OR stores.visit_version IS NOT excluded.visit_version
+          OR stores.sheet_noted_version IS NOT excluded.sheet_noted_version
+          OR stores.sheet_route_version IS NOT excluded.sheet_route_version
+          OR stores.sheet_location_version IS NOT excluded.sheet_location_version
+          OR stores.sheet_visit_version IS NOT excluded.sheet_visit_version
+          OR stores.source_active IS NOT excluded.source_active`
     ).bind(storesJson));
   }
 
@@ -1323,7 +1347,10 @@ async function handleSheetSnapshot(request, env) {
          FROM json_each(?)
         WHERE true
        ON CONFLICT(account) DO UPDATE SET
-        items_json=excluded.items_json,version=excluded.version,sheet_version=excluded.sheet_version,updated_at=excluded.updated_at`
+        items_json=excluded.items_json,version=excluded.version,sheet_version=excluded.sheet_version,updated_at=excluded.updated_at
+       WHERE report_config_sets.items_json IS NOT excluded.items_json
+          OR report_config_sets.version IS NOT excluded.version
+          OR report_config_sets.sheet_version IS NOT excluded.sheet_version`
     ).bind(JSON.stringify(normalizedConfig)));
   }
 
