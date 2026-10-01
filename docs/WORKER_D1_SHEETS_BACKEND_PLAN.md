@@ -4,46 +4,43 @@
 
 **Last updated:** `2026-10-01` (Asia/Bangkok)
 
-This is an active backend-first plan. The current production web application remains
-on its existing Apps Script path until frontend cutover is explicitly approved. Read
-`Implementation Progress` and `docs/BACKEND_DEV_PROGRESS_2026-09-30.md` before
-starting any task; together they are the backend handoff source of truth.
+This plan now records an owner-authorized production cutover performed on
+`2026-10-01`. The historical Phase 0 / Decision Gate A measurements remain incomplete,
+but the owner explicitly approved moving CVS_PHANToM to the verified Worker/D1 path
+while all users were stopped for the cutover. Read `Implementation Progress` and
+`docs/BACKEND_DEV_PROGRESS_2026-09-30.md` before making further changes.
 
 ## Implementation Progress
 
 | Work item | Status | Evidence / boundary |
 | --- | --- | --- |
 | Cloudflare tooling and account authentication | Complete | `wrangler 4.144.0` authenticated against the approved account. Credentials stay outside Git. |
-| Worker DEV bootstrap | Complete | Initial health-only scaffold was validated before backend integration work. |
-| Worker DEV operational API | Deployed / verified in isolated DEV | D1-backed authenticated read/write API is deployed. Route/noted/location/report-config E2E projection, retry, conflict and restore tests passed on staging. Frontend traffic remains unchanged. |
-| D1 DEV foundation | Created / migrations reproducible | `cvs-phantom-db-dev` exists with migrations `0001`, `0002`, `0003`. A fresh local D1 applies the same sequence successfully. |
-| DEV Apps Script bridge | Deployed / verified | Independent DEV bridge is deployed at version `@14`; signed bridge reads and D1->Sheet writes work against staging. |
-| Sheet -> D1 reconciliation | Verified in isolated DEV | Worker Cron runs every 5 minutes and pulls a fresh signed bridge snapshot every 15 minutes. Remote audit events at 10:15 and 10:30 Asia/Bangkok confirm scheduled pulls. A reversible manual staging-Sheet route edit reconciled into D1, was restored, and full parity returned to 0 mismatches. |
-| DEV staging parity | Passed after current E2E restore | 120 D1 stores vs 120 staging Sheet stores; 0 version-hash mismatches across master/noted/route/location/visit. |
-| Snapshot security | Passed | Invalid signature 401; malformed signed snapshot 400; replayed nonce 409. |
-| Report-config admin write test | Passed, gate re-closed | Temporary DEV-only enable was used for write/retry/stale/restore; another account stayed unchanged; `ENABLE_ADMIN_MUTATIONS=0` is deployed again. |
-| Phase 0 production workload measurement | Incomplete / needs telemetry | Historical baseline still lacks representative p50/p95, failure, active-user, quota and outbox-volume evidence. |
-| Decision Gate A: Worker gateway only vs Worker plus D1 | Not formally approved | D1 exists only as an isolated DEV experiment. Its existence is not production architecture approval. |
-| Production frontend/App Script data path | Legacy default retained | `index.html` has a dormant Worker adapter, but it defaults to Apps Script and has no browser credential. Production Apps Script and Sheets do not send traffic to this Worker. |
-| CVS_SME adoption | Not started / isolated | CVS_SME must not share CVS_PHANToM Worker, D1, bridge, secrets or team data. |
+| Worker operational API | Production cutover deployed | Worker `cvs-phantom-api-dev` is operationally serving production data despite its historical `-dev` name. Current deployed version after auth/retry hardening: `c13b8796-7e0a-45cb-af3a-aee296d77528`. |
+| D1 foundation | Production data loaded / migrations reproducible | `cvs-phantom-db-dev` contains production CVS_PHANToM data. Migrations `0001` through `0004_auth_rate_limit.sql` apply cleanly to a fresh local D1 and are applied remotely. |
+| Apps Script bridge | Production Sheet target verified | Signed bridge reads the production `CVS_PHANToM` spreadsheet. A complete production snapshot returned 3 teams, 674 stores, 8 config accounts and 505 config items. |
+| Sheet -> D1 reconciliation | Production enabled | Worker Cron runs every 5 minutes; every 15 minutes it pulls a complete signed Sheet snapshot. Snapshot reads retry up to 3 times to tolerate transient Apps Script non-JSON responses. |
+| Production parity/count check | Passed before frontend push | DB_GBKK4 120/96 visited, DB_GBKK2 364/62 visited, SME_CVS20 190/0 visited; Worker/D1 counts match the production Google Sheet. |
+| Browser authentication | Implemented / verified | User/admin access codes remain Worker secrets. Browser receives a signed 12-hour session token only, stored in `sessionStorage`. Login attempts are rate-limited by HMAC-hashed client IP. |
+| Report Admin | Worker path enabled | Admin role is required for report-config writes. A no-op LAWSON production write was verified end-to-end with stable version and completed outbox projection. |
+| Report config reads | Worker path enabled | Report and main-page config warm-up read from Worker/D1 in Worker mode, so admin changes are visible immediately from D1 while Sheet projection remains asynchronous. |
+| Legacy fallback | Retained | `?backend=legacy` keeps the Apps Script path available for emergency rollback. |
+| Phase 0 historical workload measurement | Incomplete | Original p50/p95, error-rate, active-user and quota evidence remains incomplete; this is documented rather than rewritten as complete. |
+| CVS_SME adoption | Not started / isolated | The separately deployed CVS_SME app/resources were not modified. |
 
 ### Current Safe Next Action
 
-Finish the remaining isolated DEV recovery checks: exercise a safely restorable
-visit/reset fixture and a controlled bridge-failure/dead-letter recovery path, then
-create a clean Git checkpoint. Cron Sheet pull, reversible manual Sheet -> D1
-reconciliation, restore, and 120-store parity are already verified. The frontend
-adapter remains Apps Script by default until browser-safe authentication and pilot
-E2E evidence are explicitly completed.
+Finish the frontend commit/push and verify the Vercel deployment at
+`https://sme-cvse20.vercel.app` with user and admin sessions. Then monitor Worker
+health, outbox errors/dead rows and Sheet reconciliation during the first live usage
+window.
 
-### Explicit Stop Conditions
+### Production Safety Boundaries
 
-- Do not connect production frontend traffic to the DEV Worker.
-- Do not point the DEV bridge or D1 at production Sheets.
-- Do not use production data for deliberate mutation/failure tests.
-- Do not leave `ENABLE_ADMIN_MUTATIONS=1` after a bounded DEV test.
-- Do not add credentials, local `.dev.vars`, Wrangler state, or local secret files to Git.
-- Do not copy this work into CVS_SME until the CVS_PHANToM backend release gate is met.
+- Keep Worker session/access secrets out of Git and browser source.
+- Distribute only the user access code to normal users; keep the admin code private.
+- Preserve `?backend=legacy` as the immediate rollback path during stabilization.
+- Do not modify or connect the separately deployed CVS_SME resources.
+- Do not force-push or discard the backend checkpoint/history.
 
 ## Repository and Rollout Roles
 

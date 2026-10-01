@@ -4,47 +4,52 @@
 
 **Last updated:** `2026-10-01` (Asia/Bangkok)
 
-This document is the current handoff record for the isolated CVS_PHANToM backend
-experiment. The production frontend, production Apps Script/Sheets path, and CVS_SME
-remain outside this experiment.
+This document began as the isolated DEV handoff record. On `2026-10-01`, after
+the owner stopped all users and explicitly authorized the production cutover,
+CVS_PHANToM was moved to the verified Worker/D1 architecture. Historical DEV evidence
+is retained below for provenance.
 
-The DEV backend is no longer a health-only gateway. It currently consists of:
+Current production path:
 
 ```text
-DEV client/test
+Vercel frontend
+  -> password/access-code login
+  -> signed Worker session token
   -> Cloudflare Worker cvs-phantom-api-dev
        -> D1 cvs-phantom-db-dev
        -> durable sync_outbox
        -> signed Apps Script bridge
-       -> CVS_PHANToM_BACKEND_STAGING Sheet
+       -> production CVS_PHANToM Google Sheet
 
 Worker Cron (*/5)
   -> every 15 minutes: signed getFreshSheetSnapshot bridge read
-  -> existing D1 reconciliation path
+  -> D1 reconciliation
 ```
 
-Decision Gate A has **not** been formally approved. D1 was nevertheless created and
-used for an isolated DEV integration experiment. That experiment must not be treated
-as approval for production cutover or CVS_SME adoption.
+The original Phase 0 / Decision Gate A measurement package is still incomplete.
+Production cutover is therefore recorded as an explicit owner operational decision,
+not as retroactive completion of the historical gate. CVS_SME remains untouched.
 
-## Current DEV Resources
+## Current Production Resources
 
 | Resource | Current state |
 | --- | --- |
-| Worker | `cvs-phantom-api-dev`, deployed version `02e5d356-3c43-4a91-afb4-b40a428592e1` |
-| Worker schedule | `*/5 * * * *`; Sheet pull is gated to UTC minutes divisible by 15 |
-| D1 | `cvs-phantom-db-dev` |
-| D1 migrations | `0001_init.sql`, `0002_outbox_lease.sql`, `0003_backend_rework.sql` |
-| Apps Script bridge | independent DEV project, deployment `@14` |
-| Staging Sheet | `CVS_PHANToM_BACKEND_STAGING`, Asia/Bangkok |
-| Frontend traffic | unchanged; existing frontend does not call this Worker |
-| Admin mutations | disabled by default: `ENABLE_ADMIN_MUTATIONS=0` |
+| Worker | `cvs-phantom-api-dev` (historical name), deployed version `c13b8796-7e0a-45cb-af3a-aee296d77528` |
+| Worker schedule | `*/5 * * * *`; production Sheet pull is gated to UTC minutes divisible by 15 |
+| D1 | `cvs-phantom-db-dev` (historical name), now holding production CVS_PHANToM state |
+| D1 migrations | `0001_init.sql` through `0004_auth_rate_limit.sql` |
+| Apps Script bridge | signed standalone bridge, deployment `@14`, targeting production `CVS_PHANToM` Sheet |
+| Production Sheet snapshot | 3 teams, 674 stores, 8 report-config accounts, 505 config items |
+| Browser authentication | user/admin access-code login -> signed 12-hour session token in `sessionStorage` |
+| Allowed browser origins | `https://sme-cvse20.vercel.app` and GitHub Pages fallback |
+| Admin mutations | enabled, but Worker requires an `admin` or `service` role |
 | Edge cache | disabled: `ENABLE_EDGE_CACHE=0` |
-| DEV team scope | `DB_GBKK4` only |
+| Team scope | `DB_GBKK4`, `DB_GBKK2`, `SME_CVS20` |
 | CVS_SME | isolated and untouched |
 
-Secrets remain outside Git. Worker secret names currently include
-`BRIDGE_URL`, `BRIDGE_SECRET`, `DEV_API_TOKEN`, and `SHEET_SYNC_SECRET`.
+Secrets remain outside Git. Worker secret names include `BRIDGE_URL`,
+`BRIDGE_SECRET`, `DEV_API_TOKEN`, `SHEET_SYNC_SECRET`, `SESSION_SECRET`,
+`USER_ACCESS_CODE`, and `ADMIN_ACCESS_CODE`.
 
 ## Implemented
 

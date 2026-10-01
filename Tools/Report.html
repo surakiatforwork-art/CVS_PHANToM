@@ -700,12 +700,22 @@
     </div>
   </div>
 
+<script src="worker-auth.js"></script>
+<script src="backend-client.js"></script>
 <script>
 (() => {
   "use strict";
 
   const QUERY = new URLSearchParams(location.search);
   const REPORT_CONFIG_API_URL = "https://script.google.com/macros/s/AKfycbw91N5J4z1Jjn0rZz8qnn-ZFmP6bYJ2IZaKrOXrDaTj3aJoAvGJCVJBy982T_pXilNS/exec";
+  const USE_WORKER_REPORT_CONFIG = QUERY.get("backend") !== "legacy" && !!(window.PTWorkerAuth && window.PTBackendClient);
+  const REPORT_CLIENT = USE_WORKER_REPORT_CONFIG ? window.PTBackendClient.create({
+    mode:"worker",
+    workerUrl:window.PTWorkerAuth.workerUrl,
+    getAuthorization:()=>window.PTWorkerAuth.getAuthorization("user"),
+    clearAuthorization:window.PTWorkerAuth.clearSession,
+    legacy:{}
+  }) : null;
   const EMBED = QUERY.get("embed") === "1";
   const HISTORY_MODE = QUERY.get("history") === "1" || location.hash === "#history";
 
@@ -1595,11 +1605,21 @@
 
   async function getLatestReportConfig(accountName, verifiedVersion = null, cacheOnly = false){
     const cached = readReportConfigCache(accountName);
-    if (cached && (cacheOnly || (verifiedVersion !== null && Number(cached.version) === Number(verifiedVersion)))){
+    if (cached && (cacheOnly || (!USE_WORKER_REPORT_CONFIG && verifiedVersion !== null && Number(cached.version) === Number(verifiedVersion)))){
       return { result: cached.result, fromCache: true };
     }
     if (cacheOnly) throw new Error("ไม่พบ config ในเครื่อง");
     try{
+      if (USE_WORKER_REPORT_CONFIG){
+        const result = await REPORT_CLIENT.getReportConfig(accountName);
+        if (!result || !result.ok) throw new Error((result && result.message) || "โหลด config ไม่สำเร็จ");
+        if (cached && String(cached.version ?? "") === String(result.version ?? "")){
+          return { result: cached.result, fromCache: true };
+        }
+        writeReportConfigCache(accountName, result);
+        return { result, fromCache: false };
+      }
+
       const meta = await reportConfigMetaJsonp(accountName);
       if (!meta || !meta.ok) throw new Error((meta && meta.message) || "โหลดสถานะ config ไม่สำเร็จ");
       if (cached && Number(cached.version) === Number(meta.version)){

@@ -1789,6 +1789,7 @@
   </div>
 </div>
 
+<script src="Tools/worker-auth.js"></script>
 <script src="Tools/backend-client.js"></script>
 <script>
   const CONFIG = {
@@ -2096,6 +2097,25 @@
     if(REPORT_CONFIG_WARMING[accountKey]) return REPORT_CONFIG_WARMING[accountKey];
 
     var cached = readReportConfigCache_(accountKey);
+    if(BACKEND_CLIENT && BACKEND_CLIENT.mode() === "worker"){
+      var workerWork = BACKEND_CLIENT.getReportConfig(accountKey).then(function(result){
+        if(!result || !result.ok || !Array.isArray(result.items)){
+          throw new Error((result && (result.message || result.error)) || "โหลด config รายงานไม่สำเร็จ");
+        }
+        if(cached && String(cached.version ?? "") === String(result.version ?? "")){
+          return { version:result.version, verified:true, changed:false };
+        }
+        writeReportConfigCache_(accountKey, result);
+        return { version:result.version, verified:true, changed:true };
+      }).catch(function(){
+        return { version:cached ? cached.version : null, verified:false, changed:false };
+      }).finally(function(){
+        delete REPORT_CONFIG_WARMING[accountKey];
+      });
+      REPORT_CONFIG_WARMING[accountKey] = workerWork;
+      return workerWork;
+    }
+
     var metaUrl = apiUrl('getReportConfigMeta', { account: accountKey });
     if(!metaUrl) return Promise.resolve({ version: cached ? cached.version : null, verified:false, changed:false });
 
@@ -2237,6 +2257,7 @@
       mode:wantsWorker ? 'worker' : 'apps-script',
       workerUrl:'https://cvs-phantom-api-dev.surakiat16082000.workers.dev',
       getAuthorization:wantsWorker ? pilot.getAuthorization : null,
+      clearAuthorization:wantsWorker ? pilot.clearAuthorization : null,
       legacy:{
         listTeams:legacyApiGetSheets,
         getPlaces:legacyApiGetPlaces,

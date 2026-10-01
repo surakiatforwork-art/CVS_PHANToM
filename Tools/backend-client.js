@@ -9,6 +9,7 @@
     var workerUrl = String(options.workerUrl || '').replace(/\/+$/, '');
     var getAuthorization = options.getAuthorization;
     var versions = Object.create(null);
+    var configVersions = Object.create(null);
 
     function workerReady(){
       return options.mode === 'worker' && workerUrl && typeof getAuthorization === 'function';
@@ -29,20 +30,26 @@
       });
     }
 
-    async function request(path, init){
-      if(!workerReady()) throw new Error('Worker pilot requires browser-safe authentication');
+    async function request(path, init, retried){
+      if(!workerReady()) throw new Error('Worker requires browser-safe authentication');
       var authorization = await getAuthorization();
       if(!authorization || typeof authorization !== 'string') {
-        throw new Error('Worker pilot authentication is unavailable');
+        throw new Error('Worker authentication is unavailable');
       }
       var headers = Object.assign({ Accept:'application/json', Authorization:authorization }, init.headers || {});
       var response = await fetch(workerUrl + path, Object.assign({}, init, { headers:headers }));
       var body;
       try { body = await response.json(); }
       catch(_) { throw new Error('Worker returned invalid JSON'); }
+      if((response.status === 401 || (response.status === 403 && body && body.error === 'Forbidden')) &&
+          !retried && typeof options.clearAuthorization === 'function'){
+        options.clearAuthorization();
+        return request(path, init, true);
+      }
       if(!response.ok || !body || body.ok === false) {
         var error = new Error((body && (body.message || body.error)) || ('Worker HTTP ' + response.status));
         error.code = body && body.error;
+        error.status = response.status;
         error.response = body;
         throw error;
       }
@@ -84,16 +91,43 @@
       };
     }
 
+    async function workerReportConfig(account){
+      var key = String(account || '').trim();
+      var result = await request('/v1/report-config/' + encodeURIComponent(key), {method:'GET'});
+      configVersions[key] = String(result.version || '');
+      return result;
+    }
+
     async function workerMutation(path, method, body, requestId){
       var headers = { 'content-type':'application/json' };
       if(requestId) headers['Idempotency-Key'] = requestId;
       return request(path, { method:method, headers:headers, body:JSON.stringify(body || {}) });
     }
 
+    async function workerSaveReportConfig(account, items, requestId, baseVersion){
+      var key = String(account || '').trim();
+      var version = baseVersion === undefined || baseVersion === null ? configVersions[key] : String(baseVersion);
+      if(version === undefined || version === null) version = '';
+      var result = await workerMutation('/v1/report-config/' + encodeURIComponent(key), 'PUT', {
+        items:items || [],
+        baseVersion:String(version)
+      }, requestId);
+      configVersions[key] = String(result.version || '');
+      return result;
+    }
+
     return {
       mode:function(){ return workerReady() ? 'worker' : 'apps-script'; },
       listTeams:function(){ return workerReady() ? workerTeams() : legacy.listTeams(); },
       getPlaces:function(sheetName){ return workerReady() ? workerPlaces(sheetName) : legacy.getPlaces(sheetName); },
+      getReportConfig:function(account){
+        if(!workerReady()) return legacy.getReportConfig(account);
+        return workerReportConfig(account);
+      },
+      saveReportConfig:function(account, items, requestId, baseVersion){
+        if(!workerReady()) return legacy.saveReportConfig(account, items, requestId, baseVersion);
+        return workerSaveReportConfig(account, items, requestId, baseVersion);
+      },
       markVisited:async function(id, sheetName, requestId){
         if(!workerReady()) return legacy.markVisited(id, sheetName, requestId);
         var result = await workerMutation('/v1/teams/' + encodeURIComponent(sheetName) + '/stores/' + encodeURIComponent(id) + '/visits', 'POST', {}, requestId);

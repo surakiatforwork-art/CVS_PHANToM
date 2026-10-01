@@ -23,7 +23,8 @@ export default {
           service: "cvs-phantom-api-dev",
           environment: env.ENVIRONMENT || "development",
           backend: env.DB ? "d1" : "unconfigured",
-          authConfigured: Boolean(env.DEV_API_TOKEN),
+          authConfigured: Boolean(env.DEV_API_TOKEN || (env.SESSION_SECRET && env.USER_ACCESS_CODE)),
+          sessionAuthConfigured: Boolean(env.SESSION_SECRET && env.USER_ACCESS_CODE && env.ADMIN_ACCESS_CODE),
           bridgeUrlConfigured: Boolean(env.BRIDGE_URL),
           bridgeSecretConfigured: Boolean(env.BRIDGE_SECRET),
           bridgeConfigured: Boolean(env.BRIDGE_URL && env.BRIDGE_SECRET),
@@ -32,23 +33,41 @@ export default {
 
       if (request.method === "OPTIONS") return preflight(request, env);
 
+      if (request.method === "POST" && url.pathname === "/auth/login") {
+        return withCors(await handleLogin(request, env), request, env);
+      }
+
       if (url.pathname === "/internal/sheet-snapshot") {
         return withCors(await handleSheetSnapshot(request, env), request, env);
       }
 
-      const auth = authorize(request, env);
-      if (!auth.ok) return json({ ok: false, error: auth.error }, auth.status);
-      if (!env.DB) return json({ ok: false, error: "D1_NOT_CONFIGURED" }, 503);
+      const auth = await authorize(request, env);
+      if (!auth.ok) return withCors(json({ ok: false, error: auth.error }, auth.status), request, env);
+      if (!env.DB) return withCors(json({ ok: false, error: "D1_NOT_CONFIGURED" }, 503), request, env);
+
+      if (request.method === "GET" && url.pathname === "/auth/me") {
+        return withCors(json({ok:true,role:auth.role,expiresAt:auth.expiresAt || null}), request, env);
+      }
 
       if (request.method === "GET" && url.pathname === "/internal/status") {
         return withCors(await backendStatus(env), request, env);
       }
 
+      if (request.method === "POST" && url.pathname === "/internal/pull-sheet") {
+        if (!["admin","service"].includes(String(auth.role || ""))) {
+          return withCors(json({ok:false,error:"ADMIN_REQUIRED"},403), request, env);
+        }
+        return withCors(json(await pullFreshSheetSnapshot(env)), request, env);
+      }
+
       const route = matchRoute(request.method, url.pathname);
       if (!route) return json({ ok: false, error: "Not found" }, 404);
       enforceDevScope(env, route);
+      if (route.admin && !["admin","service"].includes(String(auth.role || ""))) {
+        return withCors(json({ ok:false,error:"ADMIN_REQUIRED" },403), request, env);
+      }
       if (route.admin && env.ENABLE_ADMIN_MUTATIONS !== "1") {
-        return json({ ok: false, error: "Admin mutations disabled" }, 403);
+        return withCors(json({ ok: false, error: "Admin mutations disabled" }, 403), request, env);
       }
 
       const body = route.read ? {} : await parseJsonBody(request);
@@ -833,10 +852,24 @@ async function pullFreshSheetSnapshot(env) {
     return {ok:false,skipped:true,error:"SHEET_PULL_NOT_CONFIGURED"};
   }
 
-  const payload = await bridgeCall(env, "getFreshSheetSnapshot", {}, "");
-  if (!payload || payload.complete !== true) {
-    throw new Error("Bridge returned an incomplete Sheet snapshot");
+  let payload = null;
+  let lastBridgeError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const candidate = await bridgeCall(env, "getFreshSheetSnapshot", {}, "");
+      if (!candidate || candidate.complete !== true) {
+        throw new Error("Bridge returned an incomplete Sheet snapshot");
+      }
+      payload = candidate;
+      break;
+    } catch (error) {
+      lastBridgeError = error;
+      if (attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+      }
+    }
   }
+  if (!payload) throw lastBridgeError || new Error("Sheet snapshot pull failed");
 
   const eventId = "worker-pull:" + String(payload.generatedAt || "") + ":" + crypto.randomUUID();
   const ts = Date.now();
@@ -1339,12 +1372,114 @@ async function verifyInboundEnvelope(body, secret) {
   if (!safeEqual(expected, signature)) throw new HttpError(401,"INVALID_SHEET_SIGNATURE");
 }
 
-function authorize(request, env) {
-  if (!env.DEV_API_TOKEN) return { ok:false,status:503,error:"API authentication is not configured" };
+async function handleLogin(request, env) {
+  if (!env.SESSION_SECRET || !env.USER_ACCESS_CODE || !env.ADMIN_ACCESS_CODE) {
+    return json({ok:false,error:"SESSION_AUTH_NOT_CONFIGURED"},503);
+  }
+  const rate = await readLoginRate_(request, env);
+  if (rate.blocked) {
+    return json({ok:false,error:"LOGIN_RATE_LIMITED"},429);
+  }
+
+  const body = await parseJsonBody(request);
+  const code = String(body.code || "").trim();
+  if (!code) throw new HttpError(400,"BAD_REQUEST","Missing access code");
+
+  let role = "";
+  if (safeEqual(code, String(env.ADMIN_ACCESS_CODE))) role = "admin";
+  else if (safeEqual(code, String(env.USER_ACCESS_CODE))) role = "user";
+  else {
+    await recordFailedLogin_(rate, env);
+    return json({ok:false,error:"INVALID_ACCESS_CODE"},403);
+  }
+
+  await clearLoginRate_(rate, env);
+  const ttl = Math.max(900, Math.min(86400, Number(env.SESSION_TTL_SEC || 43200)));
+  const now = Math.floor(Date.now()/1000);
+  const payload = {v:1,role,iat:now,exp:now+ttl,jti:crypto.randomUUID()};
+  const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = await hmacBase64Url(env.SESSION_SECRET, "pt1." + encoded);
+  return json({
+    ok:true,
+    role,
+    token:"pt1." + encoded + "." + signature,
+    expiresAt:new Date((now+ttl)*1000).toISOString(),
+  });
+}
+
+async function readLoginRate_(request, env) {
+  if (!env.DB || !env.SESSION_SECRET) return {key:"",blocked:false,attempts:0,windowStart:0};
+  const ip = String(request.headers.get("CF-Connecting-IP") || request.headers.get("x-forwarded-for") || "unknown").split(",")[0].trim();
+  const key = (await hmacBase64Url(env.SESSION_SECRET, "login-rate:" + ip)).slice(0,40);
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  await env.DB.prepare("DELETE FROM auth_login_attempts WHERE updated_at<?")
+    .bind(new Date(now - 24*60*60*1000).toISOString()).run();
+  const row = await env.DB.prepare("SELECT window_start,attempts FROM auth_login_attempts WHERE key=?").bind(key).first();
+  if (!row || now - Number(row.window_start || 0) >= windowMs) {
+    return {key,blocked:false,attempts:0,windowStart:now};
+  }
+  const attempts = Number(row.attempts || 0);
+  return {key,blocked:attempts >= 10,attempts,windowStart:Number(row.window_start || now)};
+}
+
+async function recordFailedLogin_(rate, env) {
+  if (!env.DB || !rate?.key) return;
+  const now = Date.now();
+  const windowStart = Number(rate.windowStart || now);
+  const attempts = Number(rate.attempts || 0) + 1;
+  await env.DB.prepare(`
+    INSERT INTO auth_login_attempts(key,window_start,attempts,updated_at)
+    VALUES(?,?,?,?)
+    ON CONFLICT(key) DO UPDATE SET
+      window_start=excluded.window_start,
+      attempts=excluded.attempts,
+      updated_at=excluded.updated_at
+  `).bind(rate.key, windowStart, attempts, new Date(now).toISOString()).run();
+}
+
+async function clearLoginRate_(rate, env) {
+  if (!env.DB || !rate?.key) return;
+  await env.DB.prepare("DELETE FROM auth_login_attempts WHERE key=?").bind(rate.key).run();
+}
+
+async function authorize(request, env) {
   const header = request.headers.get("Authorization") || "";
   if (!header.startsWith("Bearer ")) return { ok:false,status:401,error:"Unauthorized" };
-  if (!safeEqual(header.slice(7), env.DEV_API_TOKEN)) return { ok:false,status:403,error:"Forbidden" };
-  return { ok:true };
+  const token = header.slice(7).trim();
+
+  if (env.DEV_API_TOKEN && safeEqual(token, String(env.DEV_API_TOKEN))) {
+    return {ok:true,role:"service"};
+  }
+  if (!env.SESSION_SECRET) {
+    return env.DEV_API_TOKEN
+      ? {ok:false,status:403,error:"Forbidden"}
+      : {ok:false,status:503,error:"API authentication is not configured"};
+  }
+
+  const verified = await verifySessionToken(token, env.SESSION_SECRET);
+  if (!verified) return {ok:false,status:403,error:"Forbidden"};
+  return {ok:true,role:verified.role,expiresAt:new Date(verified.exp*1000).toISOString()};
+}
+
+async function verifySessionToken(token, secret) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3 || parts[0] !== "pt1") return null;
+  const expected = await hmacBase64Url(secret, "pt1." + parts[1]);
+  if (!safeEqual(expected, parts[2])) return null;
+  let payload;
+  try {
+    let raw = parts[1].replace(/-/g,"+").replace(/_/g,"/");
+    raw += "=".repeat((4 - raw.length % 4) % 4);
+    const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+    payload = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
+  }
+  if (!payload || payload.v !== 1 || !["user","admin"].includes(String(payload.role || ""))) return null;
+  const now = Math.floor(Date.now()/1000);
+  if (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now) return null;
+  return payload;
 }
 
 function enforceDevScope(env, route) {
