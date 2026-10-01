@@ -23,8 +23,8 @@ export default {
           service: "cvs-phantom-api-dev",
           environment: env.ENVIRONMENT || "development",
           backend: env.DB ? "d1" : "unconfigured",
-          authConfigured: Boolean(env.DEV_API_TOKEN || (env.SESSION_SECRET && env.USER_ACCESS_CODE)),
-          sessionAuthConfigured: Boolean(env.SESSION_SECRET && env.USER_ACCESS_CODE && env.ADMIN_ACCESS_CODE),
+          authConfigured: Boolean(env.DEV_API_TOKEN || env.SESSION_SECRET),
+          sessionAuthConfigured: Boolean(env.SESSION_SECRET && env.ADMIN_ACCESS_CODE),
           bridgeUrlConfigured: Boolean(env.BRIDGE_URL),
           bridgeSecretConfigured: Boolean(env.BRIDGE_SECRET),
           bridgeConfigured: Boolean(env.BRIDGE_URL && env.BRIDGE_SECRET),
@@ -35,6 +35,10 @@ export default {
 
       if (request.method === "POST" && url.pathname === "/auth/login") {
         return withCors(await handleLogin(request, env), request, env);
+      }
+
+      if (request.method === "POST" && url.pathname === "/auth/user-session") {
+        return withCors(await handleUserSession(env), request, env);
       }
 
       if (url.pathname === "/internal/sheet-snapshot") {
@@ -1399,8 +1403,15 @@ async function verifyInboundEnvelope(body, secret) {
   if (!safeEqual(expected, signature)) throw new HttpError(401,"INVALID_SHEET_SIGNATURE");
 }
 
+async function handleUserSession(env) {
+  if (!env.SESSION_SECRET) {
+    return json({ok:false,error:"SESSION_AUTH_NOT_CONFIGURED"},503);
+  }
+  return issueSession_("user", env);
+}
+
 async function handleLogin(request, env) {
-  if (!env.SESSION_SECRET || !env.USER_ACCESS_CODE || !env.ADMIN_ACCESS_CODE) {
+  if (!env.SESSION_SECRET || !env.ADMIN_ACCESS_CODE) {
     return json({ok:false,error:"SESSION_AUTH_NOT_CONFIGURED"},503);
   }
   const rate = await readLoginRate_(request, env);
@@ -1412,15 +1423,16 @@ async function handleLogin(request, env) {
   const code = String(body.code || "").trim();
   if (!code) throw new HttpError(400,"BAD_REQUEST","Missing access code");
 
-  let role = "";
-  if (safeEqual(code, String(env.ADMIN_ACCESS_CODE))) role = "admin";
-  else if (safeEqual(code, String(env.USER_ACCESS_CODE))) role = "user";
-  else {
+  if (!safeEqual(code, String(env.ADMIN_ACCESS_CODE))) {
     await recordFailedLogin_(rate, env);
     return json({ok:false,error:"INVALID_ACCESS_CODE"},403);
   }
 
   await clearLoginRate_(rate, env);
+  return issueSession_("admin", env);
+}
+
+async function issueSession_(role, env) {
   const ttl = Math.max(900, Math.min(86400, Number(env.SESSION_TTL_SEC || 43200)));
   const now = Math.floor(Date.now()/1000);
   const payload = {v:1,role,iat:now,exp:now+ttl,jti:crypto.randomUUID()};

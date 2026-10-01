@@ -64,6 +64,45 @@ async function call(path, init = {}, env = { ...baseEnv, DB: fakeDB }) {
   assert.equal(res.status, 401);
 }
 {
+  const sessionEnv = {
+    ...baseEnv,
+    DEV_API_TOKEN: "",
+    SESSION_SECRET: "session-secret",
+    ADMIN_ACCESS_CODE: "admin-code",
+    USER_ACCESS_CODE: "legacy-user-code",
+    DB: fakeDB,
+  };
+  const sessionRes = await call("/auth/user-session", {
+    method: "POST",
+    headers: { origin: "https://example.test", "content-type": "application/json" },
+    body: "{}",
+  }, sessionEnv);
+  assert.equal(sessionRes.status, 200);
+  const session = await sessionRes.json();
+  assert.equal(session.role, "user");
+  assert.ok(session.token.startsWith("pt1."));
+
+  const teamsRes = await call("/v1/teams", {
+    headers: { authorization: "Bearer " + session.token },
+  }, sessionEnv);
+  assert.equal(teamsRes.status, 200);
+
+  const legacyUserLogin = await call("/auth/login", {
+    method: "POST",
+    headers: { origin: "https://example.test", "content-type": "application/json" },
+    body: JSON.stringify({ code: "legacy-user-code" }),
+  }, sessionEnv);
+  assert.equal(legacyUserLogin.status, 403);
+
+  const adminLogin = await call("/auth/login", {
+    method: "POST",
+    headers: { origin: "https://example.test", "content-type": "application/json" },
+    body: JSON.stringify({ code: "admin-code" }),
+  }, sessionEnv);
+  assert.equal(adminLogin.status, 200);
+  assert.equal((await adminLogin.json()).role, "admin");
+}
+{
   const res = await call("/v1/teams", { headers: { authorization: "Bearer wrong" } });
   assert.equal(res.status, 403);
 }

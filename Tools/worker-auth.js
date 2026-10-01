@@ -87,11 +87,12 @@
   }
 
   async function login(requiredRole){
-    var code = await requestAccessCode(requiredRole);
-    var response = await fetch(WORKER_URL + '/auth/login', {
+    var isAdmin = requiredRole === 'admin';
+    var code = isAdmin ? await requestAccessCode(requiredRole) : '';
+    var response = await fetch(WORKER_URL + (isAdmin ? '/auth/login' : '/auth/user-session'), {
       method:'POST',
       headers:{'content-type':'application/json','accept':'application/json'},
-      body:JSON.stringify({code:code})
+      body:isAdmin ? JSON.stringify({code:code}) : '{}'
     });
     code='';
     var body = null;
