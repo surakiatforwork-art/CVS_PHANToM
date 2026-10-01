@@ -1789,6 +1789,7 @@
   </div>
 </div>
 
+<script src="Tools/backend-client.js"></script>
 <script>
   const CONFIG = {
     API_URL: 'https://script.google.com/macros/s/AKfycbw91N5J4z1Jjn0rZz8qnn-ZFmP6bYJ2IZaKrOXrDaTj3aJoAvGJCVJBy982T_pXilNS/exec',
@@ -2055,13 +2056,13 @@
     return base + (base.indexOf('?') >= 0 ? '&' : '?') + qs;
   }
 
-  async function apiGetSheets(){
+  async function legacyApiGetSheets(){
     var url = apiUrl('getSheets');
     if(!url) return { ok:false, message:'ยังไม่ได้ตั้งค่า CONFIG.API_URL' };
     return await jsonpWithRetry(url, 30000, 1);
   }
 
-  async function apiGetPlaces(sheetName){
+  async function legacyApiGetPlaces(sheetName){
     var params = {};
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('getPlaces', params);
@@ -2122,7 +2123,7 @@
     return work;
   }
 
-  async function apiMarkVisited(id, sheetName){
+  async function legacyApiMarkVisited(id, sheetName){
     var params = { id:id };
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('markVisited', params);
@@ -2130,7 +2131,7 @@
     return await jsonp(url, 30000);
   }
 
-  async function apiResetVisitedAll(sheetName){
+  async function legacyApiResetVisitedAll(sheetName){
     var params = {};
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('resetVisitedAll', params);
@@ -2138,7 +2139,7 @@
     return await jsonp(url, 30000);
   }
 
-  async function apiSaveNoted(id, noted, sheetName){
+  async function legacyApiSaveNoted(id, noted, sheetName){
     var params = { id:id, noted:noted };
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('saveNoted', params);
@@ -2211,7 +2212,7 @@
     if(!copied) throw new Error('คัดลอกไม่สำเร็จ');
   }
 
-  async function apiUpdateRoute(id, route, sheetName){
+  async function legacyApiUpdateRoute(id, route, sheetName){
     var params = { id:id, route:route };
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('updateRoute', params);
@@ -2219,13 +2220,43 @@
     return await jsonp(url, 30000);
   }
 
-  async function apiUpdateLocation(id, lat, lng, sheetName){
+  async function legacyApiUpdateLocation(id, lat, lng, sheetName){
     var params = { id:id, lat:lat, lng:lng };
     if(sheetName) params.sheet = sheetName;
     var url = apiUrl('updateLocation', params);
     if(!url) return { ok:false, message:'ยังไม่ได้ตั้งค่า CONFIG.API_URL' };
     return await jsonp(url, 30000);
   }
+
+  // Worker mode is intentionally opt-in and needs a future short-lived browser
+  // session provider. The DEV bearer token is never read by this page.
+  function createBackendClient_(){
+    var pilot = window.__PT_WORKER_PILOT__ || {};
+    var wantsWorker = pilot.mode === 'worker' && typeof pilot.getAuthorization === 'function';
+    return window.PTBackendClient.create({
+      mode:wantsWorker ? 'worker' : 'apps-script',
+      workerUrl:'https://cvs-phantom-api-dev.surakiat16082000.workers.dev',
+      getAuthorization:wantsWorker ? pilot.getAuthorization : null,
+      legacy:{
+        listTeams:legacyApiGetSheets,
+        getPlaces:legacyApiGetPlaces,
+        markVisited:legacyApiMarkVisited,
+        resetVisits:legacyApiResetVisitedAll,
+        saveNoted:legacyApiSaveNoted,
+        updateRoute:legacyApiUpdateRoute,
+        updateLocation:legacyApiUpdateLocation
+      }
+    });
+  }
+
+  var BACKEND_CLIENT = createBackendClient_();
+  function apiGetSheets(){ return BACKEND_CLIENT.listTeams(); }
+  function apiGetPlaces(sheetName){ return BACKEND_CLIENT.getPlaces(sheetName); }
+  function apiMarkVisited(id, sheetName, requestId){ return BACKEND_CLIENT.markVisited(id, sheetName, requestId); }
+  function apiResetVisitedAll(sheetName, requestId){ return BACKEND_CLIENT.resetVisits(sheetName, requestId); }
+  function apiSaveNoted(id, noted, sheetName, requestId){ return BACKEND_CLIENT.saveNoted(id, noted, sheetName, requestId); }
+  function apiUpdateRoute(id, route, sheetName, requestId){ return BACKEND_CLIENT.updateRoute(id, route, sheetName, requestId); }
+  function apiUpdateLocation(id, lat, lng, sheetName, requestId){ return BACKEND_CLIENT.updateLocation(id, lat, lng, sheetName, requestId); }
 
   $('routeEditSave').addEventListener('click', saveRouteEditor_);
   $('locationEditSave').addEventListener('click', saveLocationEditor_);
@@ -4365,6 +4396,13 @@
     return String(item && item.sheetName || '').trim() + '|' + String(item && item.id || '').trim();
   }
 
+  function outboxRequestId_(prefix){
+    var random = '';
+    try{ random = crypto && crypto.randomUUID ? crypto.randomUUID() : ''; }catch(e){}
+    if(!random) random = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    return String(prefix || 'pt') + '-' + random;
+  }
+
   function readVisitOutbox_(){
     try{
       var raw = localStorage.getItem(VISIT_OUTBOX_KEY);
@@ -4372,17 +4410,22 @@
       if(!Array.isArray(source)) return [];
       var seen = {};
       var out = [];
+      var migrated = false;
       source.forEach(function(item){
+        var requestId = String(item && item.requestId || '').trim();
+        if(!requestId){ requestId = outboxRequestId_('visit'); migrated = true; }
         var normalized = {
           id: String(item && item.id || '').trim(),
           sheetName: String(item && item.sheetName || '').trim(),
-          createdAt: Number(item && item.createdAt || 0) || Date.now()
+          createdAt: Number(item && item.createdAt || 0) || Date.now(),
+          requestId: requestId
         };
         var key = visitOutboxKey_(normalized);
         if(!normalized.id || !normalized.sheetName || seen[key]) return;
         seen[key] = true;
         out.push(normalized);
       });
+      if(migrated) writeVisitOutbox_(out);
       return out;
     }catch(e){ return []; }
   }
@@ -4423,7 +4466,7 @@
   }
 
   function queueVisitForSync_(placeId, sheetName){
-    var item = { id:String(placeId || '').trim(), sheetName:String(sheetName || '').trim(), createdAt:Date.now() };
+    var item = { id:String(placeId || '').trim(), sheetName:String(sheetName || '').trim(), createdAt:Date.now(), requestId:outboxRequestId_('visit') };
     if(!item.id || !item.sheetName) return false;
     var items = readVisitOutbox_();
     var key = visitOutboxKey_(item);
@@ -4467,19 +4510,25 @@
       var source = JSON.parse(localStorage.getItem(NOTED_OUTBOX_KEY) || '[]');
       if(!Array.isArray(source)) return [];
       var byKey = {};
+      var migrated = false;
       source.forEach(function(item){
+        var requestId = String(item && item.requestId || '').trim();
+        if(!requestId){ requestId = outboxRequestId_('noted'); migrated = true; }
         var normalized = {
           id: String(item && item.id || '').trim(),
           sheetName: String(item && item.sheetName || '').trim(),
           noted: String(item && item.noted || ''),
-          createdAt: Number(item && item.createdAt || 0) || Date.now()
+          createdAt: Number(item && item.createdAt || 0) || Date.now(),
+          requestId: requestId
         };
         var key = notedOutboxKey_(normalized);
         if(!normalized.id || !normalized.sheetName || !normalized.noted) return;
         // Later records are the latest state for that same store.
         if(!byKey[key] || byKey[key].createdAt <= normalized.createdAt) byKey[key] = normalized;
       });
-      return Object.keys(byKey).map(function(key){ return byKey[key]; });
+      var out = Object.keys(byKey).map(function(key){ return byKey[key]; });
+      if(migrated) writeNotedOutbox_(out);
+      return out;
     }catch(e){ return []; }
   }
 
@@ -4492,7 +4541,8 @@
       id: String(placeId || '').trim(),
       sheetName: String(sheetName || '').trim(),
       noted: String(notedStr || ''),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      requestId: outboxRequestId_('noted')
     };
     if(!item.id || !item.sheetName || !item.noted) return false;
     var key = notedOutboxKey_(item);
@@ -4542,7 +4592,7 @@
       for(var index=0; index<queued.length; index++){
         var item = queued[index];
         try{
-          var res = await enqueueSheetWrite_(function(){ return apiMarkVisited(item.id, item.sheetName); }, 0);
+          var res = await enqueueSheetWrite_(function(){ return apiMarkVisited(item.id, item.sheetName, item.requestId); }, 0);
           if(!res || !res.ok) throw new Error(res && res.message ? res.message : 'Sync ไม่สำเร็จ');
           removeVisitFromOutbox_(item.id, item.sheetName);
           sent++;
@@ -4576,7 +4626,7 @@
       for(var index=0; index<queued.length; index++){
         var item = queued[index];
         try{
-          var res = await enqueueSheetWrite_(function(){ return apiSaveNoted(item.id, item.noted, item.sheetName); }, 0);
+          var res = await enqueueSheetWrite_(function(){ return apiSaveNoted(item.id, item.noted, item.sheetName, item.requestId); }, 0);
           if(!res || !res.ok) throw new Error(res && res.message ? res.message : 'Sync report ไม่สำเร็จ');
           removeNotedFromOutbox_(item.id, item.sheetName, item.noted);
           sent++;

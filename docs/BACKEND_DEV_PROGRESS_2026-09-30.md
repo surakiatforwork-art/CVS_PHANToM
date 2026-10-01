@@ -115,6 +115,19 @@ done and no error/dead outbox rows.
 Cron Sheet pull, reversible manual Sheet -> D1 reconciliation, restore, and final
 120-store parity have now been verified.
 
+## Frontend Pilot Scaffold
+
+`index.html` now calls its existing API helpers through `Tools/backend-client.js`.
+The default mode remains the existing Apps Script JSONP path, so no browser traffic
+uses the Worker. The adapter preserves legacy response shapes and adds persistent
+operation IDs to existing visit/noted outbox records; old queued records are migrated
+in place when read. A future Worker pilot requires an in-memory, browser-safe
+authorization provider. It does not read, store, or ship `DEV_API_TOKEN`.
+
+Worker mode is therefore intentionally unavailable until a browser identity/session
+mechanism is deployed and browser E2E coverage verifies authentication, CORS,
+idempotent replay, version conflicts, and fallback behavior.
+
 ## Known Boundaries
 
 - The shared DEV bearer token is not production user/role authorization.
@@ -123,7 +136,8 @@ Cron Sheet pull, reversible manual Sheet -> D1 reconciliation, restore, and fina
 - CVS_SME must not share Worker, D1, bridge, secrets, or team data with CVS_PHANToM.
 - Phase 0 production workload evidence remains incomplete. The D1 DEV experiment is
   technical validation, not proof that D1 is required at production scale.
-- Browser visit/noted outboxes have not yet been migrated to the Worker API.
+- Browser visit/noted outboxes retain the Apps Script default path; their persistent
+  operation IDs are ready for a future Worker pilot but are not yet sent to Worker.
 - Route/location remain online-only in the existing frontend.
 - The Worker Cron pull architecture currently uses full snapshots. At present scale
   (120 staging stores) this is intentionally simple; larger future datasets require
@@ -132,5 +146,5 @@ Cron Sheet pull, reversible manual Sheet -> D1 reconciliation, restore, and fina
 ## Safe Next Action
 
 Finish the remaining isolated DEV reconciliation/recovery tests, then create a clean
-Git checkpoint containing only the backend Worker, bridge, migrations, backend docs,
-and required ignore rules. Do not connect `index.html` or `Tools/*` yet.
+Git checkpoint. Do not enable the dormant Worker adapter or connect `Tools/*` to the
+Worker until browser-safe authentication is available.

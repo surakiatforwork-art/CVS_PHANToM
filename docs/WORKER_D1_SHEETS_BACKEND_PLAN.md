@@ -24,16 +24,17 @@ starting any task; together they are the backend handoff source of truth.
 | Report-config admin write test | Passed, gate re-closed | Temporary DEV-only enable was used for write/retry/stale/restore; another account stayed unchanged; `ENABLE_ADMIN_MUTATIONS=0` is deployed again. |
 | Phase 0 production workload measurement | Incomplete / needs telemetry | Historical baseline still lacks representative p50/p95, failure, active-user, quota and outbox-volume evidence. |
 | Decision Gate A: Worker gateway only vs Worker plus D1 | Not formally approved | D1 exists only as an isolated DEV experiment. Its existence is not production architecture approval. |
-| Production frontend/App Script data path | Unchanged | `index.html`, `Tools/*`, production Apps Script and production Sheets have not been connected to this Worker. |
+| Production frontend/App Script data path | Legacy default retained | `index.html` has a dormant Worker adapter, but it defaults to Apps Script and has no browser credential. Production Apps Script and Sheets do not send traffic to this Worker. |
 | CVS_SME adoption | Not started / isolated | CVS_SME must not share CVS_PHANToM Worker, D1, bridge, secrets or team data. |
 
 ### Current Safe Next Action
 
 Finish the remaining isolated DEV recovery checks: exercise a safely restorable
 visit/reset fixture and a controlled bridge-failure/dead-letter recovery path, then
-create a clean Git checkpoint containing only backend Worker/bridge/migrations/docs.
-Cron Sheet pull, reversible manual Sheet -> D1 reconciliation, restore, and 120-store
-parity are already verified. Do not connect the existing frontend yet.
+create a clean Git checkpoint. Cron Sheet pull, reversible manual Sheet -> D1
+reconciliation, restore, and 120-store parity are already verified. The frontend
+adapter remains Apps Script by default until browser-safe authentication and pilot
+E2E evidence are explicitly completed.
 
 ### Explicit Stop Conditions
 
