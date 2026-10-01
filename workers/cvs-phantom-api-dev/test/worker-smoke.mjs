@@ -87,6 +87,17 @@ async function call(path, init = {}, env = { ...baseEnv, DB: fakeDB }) {
   }, sessionEnv);
   assert.equal(teamsRes.status, 200);
 
+  const resetRes = await call("/v1/teams/DB_GBKK4/visits/reset", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + session.token,
+      "content-type": "application/json",
+      "idempotency-key": "user-reset-smoke",
+    },
+    body: "{}",
+  }, sessionEnv);
+  assert.equal(resetRes.status, 200);
+
   const legacyUserLogin = await call("/auth/login", {
     method: "POST",
     headers: { origin: "https://example.test", "content-type": "application/json" },
@@ -143,8 +154,8 @@ async function call(path, init = {}, env = { ...baseEnv, DB: fakeDB }) {
   assert.equal(res.status, 403);
 }
 {
-  const res = await call("/v1/teams/DB_GBKK4/visits/reset", {
-    method: "POST",
+  const res = await call("/v1/report-config/LAWSON", {
+    method: "PUT",
     headers: {
       authorization: "Bearer client-token",
       "content-type": "application/json",

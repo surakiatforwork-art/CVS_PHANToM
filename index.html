@@ -2723,6 +2723,7 @@
   var NOTED_SYNC_PROMISE = null;
   // Keep manual refresh single-flight so repeated taps cannot stack API/GPS work.
   var REFRESH_PROMISE = null;
+  var AUTO_REFRESH_PROMISE = null;
 
   function routeSummaryPlaces_(){
     var route = $('routeFilter') ? String($('routeFilter').value || '') : '';
@@ -4486,6 +4487,16 @@
     return REFRESH_PROMISE;
   }
 
+  function autoRefreshPlaces_(){
+    if(AUTO_REFRESH_PROMISE || REFRESH_PROMISE) return AUTO_REFRESH_PROMISE;
+    if(document.visibilityState === 'hidden' || navigator.onLine === false) return null;
+    if(!String(CURRENT_SHEET || '') || PENDING.size) return null;
+    AUTO_REFRESH_PROMISE = loadPlaces({ force:false, silent:true }).finally(function(){
+      AUTO_REFRESH_PROMISE = null;
+    });
+    return AUTO_REFRESH_PROMISE;
+  }
+
   function queueVisitForSync_(placeId, sheetName){
     var item = { id:String(placeId || '').trim(), sheetName:String(sheetName || '').trim(), createdAt:Date.now(), requestId:outboxRequestId_('visit') };
     if(!item.id || !item.sheetName) return false;
@@ -4852,14 +4863,15 @@
   async function doLoadPlaces_(opts){
     opts = opts || {};
     var forceSpinner = !!opts.force;
+    var silent = !!opts.silent;
     var sheetAtCall = CURRENT_SHEET || '';
     var usedCache = false;
 
     if(forceSpinner || (!PLACES || PLACES.length === 0)){
       usedCache = renderFromCacheIfAny_(sheetAtCall);
       if(!usedCache) showLoading();
-      else $('badgeText').textContent = 'กำลังอัปเดท…';
-    }else{
+      else if(!silent) $('badgeText').textContent = 'กำลังอัปเดท…';
+    }else if(!silent){
       $('badgeText').textContent = 'กำลังอัปเดท…';
     }
 
@@ -5332,7 +5344,15 @@
     }
   });
 
-  window.addEventListener('online', function(){ syncAllOutboxes_(false); });
+  window.addEventListener('online', function(){
+    syncAllOutboxes_(false);
+    autoRefreshPlaces_();
+  });
+  window.addEventListener('focus', function(){ autoRefreshPlaces_(); });
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible') autoRefreshPlaces_();
+  });
+  setInterval(function(){ autoRefreshPlaces_(); }, 60000);
 
   window.addEventListener('keydown', function(e){
     if(e.key === 'Escape'){

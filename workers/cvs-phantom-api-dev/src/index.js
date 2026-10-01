@@ -151,10 +151,7 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(processOutbox(env, 20));
-    const scheduledAt = Number(event?.scheduledTime || Date.now());
-    if (new Date(scheduledAt).getUTCMinutes() % 15 === 0) {
-      ctx.waitUntil(pullFreshSheetSnapshot(env));
-    }
+    ctx.waitUntil(pullFreshSheetSnapshot(env));
   },
 };
 
@@ -168,7 +165,7 @@ function matchRoute(method, pathname) {
   if (method === "POST" && m) return { name: "visit", teamId: decode(m[1]), storeId: decode(m[2]) };
 
   m = pathname.match(/^\/v1\/teams\/([^/]+)\/visits\/reset$/);
-  if (method === "POST" && m) return { name: "resetVisits", teamId: decode(m[1]), admin: true };
+  if (method === "POST" && m) return { name: "resetVisits", teamId: decode(m[1]) };
 
   m = pathname.match(/^\/v1\/teams\/([^/]+)\/stores\/([^/]+)\/noted$/);
   if (method === "PUT" && m) return { name: "noted", teamId: decode(m[1]), storeId: decode(m[2]) };
