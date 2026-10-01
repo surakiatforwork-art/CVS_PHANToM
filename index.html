@@ -5254,8 +5254,9 @@
     var sheetAtCall = CURRENT_SHEET || '';
 
     try{
+      var resetRequestId = outboxRequestId_('reset');
       var res = await enqueueSheetWrite_(function(){
-        return apiResetVisitedAll(sheetAtCall);
+        return apiResetVisitedAll(sheetAtCall, resetRequestId);
       });
       if(!res || !res.ok){
         showToast(res && res.message ? res.message : 'ล้างไม่สำเร็จ');
