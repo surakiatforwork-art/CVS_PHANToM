@@ -3,7 +3,10 @@ const BRIDGE = {
   DATA_START_ROW: 2,
   TIMEZONE: 'Asia/Bangkok',
   NONCE_TTL_SEC: 300,
-  IDEMPOTENCY_TTL_SEC: 21600,
+  IDEMPOTENCY_TTL_SEC: 86400,
+  IDEMPOTENCY_GC_INTERVAL_SEC: 3600,
+  CACHE_TTL_SEC: 300,
+  CACHE_CHUNK_CHARS: 25000,
   REPORT_CONFIG_SHEET: '__REPORT_CONFIG',
   REPORT_CONFIG_HEADERS: ['account','kind','id','sort','active','data','updatedAt'],
 };
@@ -72,7 +75,7 @@ function verifyEnvelope_(body) {
   if (cache.get(nonceKey)) throw new Error('Replay rejected');
 
   const canonical = canonicalEnvelope_(body);
-  const bytes = Utilities.computeHmacSha256Signature(canonical, secret);
+  const bytes = Utilities.computeHmacSha256Signature(canonical, secret, Utilities.Charset.UTF_8);
   const expected = Utilities.base64EncodeWebSafe(bytes).replace(/=+$/g, '');
   if (!constantTimeEqual_(expected, signature)) throw new Error('Invalid bridge signature');
 
@@ -81,6 +84,8 @@ function verifyEnvelope_(body) {
 
 function canonicalEnvelope_(body) {
   return JSON.stringify({
+    method: 'POST',
+    path: '/bridge',
     action: str_(body.action),
     params: body.params || {},
     requestId: str_(body.requestId),
@@ -103,20 +108,22 @@ function dispatch_(action, p, requestId) {
     case 'health': return { ok: true, service: 'bridge', now: new Date().toISOString() };
     case 'getSheets': return getSheets_();
     case 'getPlaces': return getPlaces_(p.sheet);
-    case 'markVisited': return markVisited_(p.sheet, p.id);
+    case 'markVisited': return markVisited_(p.sheet, p.id, p.baseVersion);
     case 'resetVisitedAll': return resetVisitedAll_(p.sheet);
     case 'saveNoted': return saveNoted_(p.sheet, p.id, p.noted, p.baseVersion);
     case 'updateRoute': return updateRoute_(p.sheet, p.id, p.route, p.baseVersion);
     case 'updateLocation': return updateLocation_(p.sheet, p.id, p.lat, p.lng, p.baseVersion);
     case 'getReportConfig': return getReportConfig_(p.account);
     case 'getReportConfigMeta': return getReportConfigMeta_(p.account);
+    case 'getFreshSheetSnapshot': return buildFreshSheetSnapshot_();
     case 'saveReportConfigBulk': return saveReportConfigBulk_(p.items || [], requestId, p.baseVersion);
     default: throw new Error('Unknown action: ' + action);
   }
 }
 
 function isMutation_(action) {
-  return ['markVisited','resetVisitedAll','saveNoted','updateRoute','updateLocation','saveReportConfigBulk'].indexOf(action) !== -1;
+  return ['markVisited','resetVisitedAll','saveNoted','updateRoute','updateLocation',
+    'saveReportConfigBulk'].indexOf(action) !== -1;
 }
 
 function withLock_(fn) {
@@ -146,6 +153,16 @@ function isUsableSheet_(sheet) {
 
 function getPlaces_(sheetName) {
   const sheet = sheet_(sheetName);
+  const rev = getRev_(sheet.getName());
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'places_v3_' + sheet.getName() + '_rev_' + rev;
+  const cached = getChunkedCache_(cache, cacheKey);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.ok) return parsed;
+    } catch (_) {}
+  }
   const m = headerMap_(sheet);
   const cId = must_(m,['list','id']);
   const cName = must_(m,['name']);
@@ -160,7 +177,11 @@ function getPlaces_(sheetName) {
   const cRoute = pick_(m,['route','rount','route_no','route_number','routeno','รูท','เส้นทาง']);
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
-  if (lastRow < BRIDGE.DATA_START_ROW) return { ok:true, schemaVersion:3, rev:getRev_(sheet.getName()), total:0, visited:0, remaining:0, places:[] };
+  if (lastRow < BRIDGE.DATA_START_ROW) {
+    const empty = {ok:true,schemaVersion:3,rev,total:0,visited:0,remaining:0,places:[]};
+    putChunkedCache_(cache, cacheKey, JSON.stringify(empty), BRIDGE.CACHE_TTL_SEC);
+    return empty;
+  }
 
   const values = sheet.getRange(BRIDGE.DATA_START_ROW,1,lastRow-BRIDGE.DATA_START_ROW+1,lastCol).getValues();
   const places = [];
@@ -187,20 +208,36 @@ function getPlaces_(sheetName) {
       locationVersion: digestKey_(str_(row[cLoc-1])),
       visited,
       lastVisitedDate: cLast ? ymd_(row[cLast-1]) : '',
+      visitVersion: digestKey_((visited ? 1 : 0) + '|' + (cLast ? ymd_(row[cLast-1]) : '')),
     });
   });
-  return { ok:true, schemaVersion:3, rev:getRev_(sheet.getName()), total:places.length, visited:visitedCount, remaining:places.length-visitedCount, places };
+  const result = {ok:true,schemaVersion:3,rev,total:places.length,visited:visitedCount,
+    remaining:places.length-visitedCount,places};
+  putChunkedCache_(cache, cacheKey, JSON.stringify(result), BRIDGE.CACHE_TTL_SEC);
+  return result;
 }
 
-function markVisited_(sheetName, id) {
+function markVisited_(sheetName, id, baseVersion) {
   const s = sheet_(sheetName), m = headerMap_(s);
   const row = rowById_(s, must_(m,['list','id']), id);
   const cVisited = must_(m,['visited','visit','done']);
   const cLast = pick_(m,['lastvisiteddate','last_visited_date','visited_date','last_visit_date']);
+  const oldVisited = visited_(s.getRange(row,cVisited).getValue());
+  const oldDate = cLast ? ymd_(s.getRange(row,cLast).getValue()) : '';
+  const currentVersion = digestKey_((oldVisited ? 1 : 0) + '|' + oldDate);
+  const today = Utilities.formatDate(new Date(), BRIDGE.TIMEZONE, 'yyyy-MM-dd');
+  const targetVersion = digestKey_('1|' + (cLast ? today : ''));
+  if (currentVersion === targetVersion) {
+    return {ok:true,rev:getRev_(s.getName()),id:String(id),visited:true,
+      lastVisitedDate:cLast ? today : '',visitVersion:targetVersion};
+  }
+  if (baseVersion && String(baseVersion) !== currentVersion) {
+    return {ok:false,error:'VERSION_CONFLICT',currentVersion};
+  }
   s.getRange(row,cVisited).setValue(1);
-  if (cLast) s.getRange(row,cLast).setValue(Utilities.formatDate(new Date(), BRIDGE.TIMEZONE, 'yyyy-MM-dd'));
-  const rev = bumpRev_(s.getName());
-  return { ok:true, rev, id:String(id), visited:true };
+  if (cLast) s.getRange(row,cLast).setValue(today);
+  return {ok:true,rev:bumpRev_(s.getName()),id:String(id),visited:true,
+    lastVisitedDate:cLast ? today : '',visitVersion:targetVersion};
 }
 
 function resetVisitedAll_(sheetName) {
@@ -236,59 +273,180 @@ function setField_(sheetName,id,aliases,value,field,baseVersion) {
   const col = must_(m,aliases);
   const oldValue = str_(s.getRange(row,col).getValue());
   const currentVersion = digestKey_(oldValue);
+  const targetValue = str_(value);
+  const targetVersion = digestKey_(targetValue);
+  if (currentVersion === targetVersion) {
+    return {ok:true,rev:getRev_(s.getName()),id:String(id),field,value:targetValue,version:targetVersion};
+  }
   if (!baseVersion || String(baseVersion) !== currentVersion) {
     return {ok:false,error:'VERSION_CONFLICT',currentVersion,currentValue:oldValue};
   }
-  if (oldValue === str_(value)) {
-    return {ok:true,rev:getRev_(s.getName()),id:String(id),field,value,version:currentVersion};
-  }
-  s.getRange(row,col).setValue(value);
-  return {ok:true,rev:bumpRev_(s.getName()),id:String(id),field,value,version:digestKey_(str_(value))};
+  s.getRange(row,col).setValue(targetValue);
+  return {ok:true,rev:bumpRev_(s.getName()),id:String(id),field,value:targetValue,version:targetVersion};
+}
+
+function reportItemsFromRows_(rows, account) {
+  const wanted = str_(account).toUpperCase();
+  return rows.filter(r => str_(r[0]).toUpperCase() === wanted).map(r => ({
+    account:str_(r[0]), kind:str_(r[1]), id:str_(r[2]), sort:Number(r[3]||0),
+    active: visited_(r[4]), data: parseJson_(r[5]), updatedAt:str_(r[6])
+  })).sort((a,b) => a.sort-b.sort || a.id.localeCompare(b.id));
+}
+
+function reportConfigVersion_(items) {
+  return digestKey_(JSON.stringify(items || []));
 }
 
 function getReportConfigMeta_(account) {
-  const props = PropertiesService.getScriptProperties();
-  return { ok:true, account:str_(account), version:Number(props.getProperty('REPORT_CONFIG_REV') || 1) };
+  const s = reportSheet_();
+  const rows = s.getLastRow() > 1 ? s.getRange(2,1,s.getLastRow()-1,BRIDGE.REPORT_CONFIG_HEADERS.length).getValues() : [];
+  const items = reportItemsFromRows_(rows, account);
+  return {ok:true, account:str_(account), version:reportConfigVersion_(items), count:items.length};
 }
 
 function getReportConfig_(account) {
   const s = reportSheet_();
   const rows = s.getLastRow() > 1 ? s.getRange(2,1,s.getLastRow()-1,BRIDGE.REPORT_CONFIG_HEADERS.length).getValues() : [];
-  const wanted = str_(account).toUpperCase();
-  const items = rows.filter(r => str_(r[0]).toUpperCase() === wanted).map(r => ({
-    account:str_(r[0]), kind:str_(r[1]), id:str_(r[2]), sort:Number(r[3]||0),
-    active: visited_(r[4]), data: parseJson_(r[5]), updatedAt:str_(r[6])
-  }));
-  return { ok:true, account:str_(account), version:Number(PropertiesService.getScriptProperties().getProperty('REPORT_CONFIG_REV') || 1), items };
+  const items = reportItemsFromRows_(rows, account);
+  return {ok:true, account:str_(account), version:reportConfigVersion_(items), items};
 }
 
 function saveReportConfigBulk_(items, requestId, baseVersion) {
   if (!Array.isArray(items) || !items.length) throw new Error('items must be a nonempty array');
-  const currentVersion = Number(PropertiesService.getScriptProperties().getProperty('REPORT_CONFIG_REV') || 1);
-  if (Number(baseVersion) !== currentVersion || !baseVersion) {
+  const accountKey = str_(items[0].account).toUpperCase();
+  if (!accountKey) throw new Error('Invalid config account');
+
+  const now = new Date().toISOString();
+  const normalizedItems = items.map(x => {
+    const account = str_(x.account), kind = str_(x.kind), id = str_(x.id);
+    if (!account || account.toUpperCase() !== accountKey || !kind || !id) {
+      throw new Error('Invalid config item');
+    }
+    return {
+      account, kind, id, sort:Number(x.sort||0), active:x.active !== false,
+      data:x.data == null ? {} : x.data,
+      updatedAt:str_(x.updatedAt) || now
+    };
+  }).sort((a,b) => a.sort-b.sort || a.id.localeCompare(b.id));
+  const targetVersion = reportConfigVersion_(normalizedItems);
+
+  const s = reportSheet_();
+  const lastRow = s.getLastRow();
+  const previous = lastRow > 1
+    ? s.getRange(2,1,lastRow-1,BRIDGE.REPORT_CONFIG_HEADERS.length).getValues()
+    : [];
+  const currentItems = reportItemsFromRows_(previous, accountKey);
+  const currentVersion = reportConfigVersion_(currentItems);
+  if (currentVersion === targetVersion) {
+    return {ok:true,count:normalizedItems.length,version:targetVersion,requestId:str_(requestId)};
+  }
+  if (!baseVersion || String(baseVersion) !== currentVersion) {
     return {ok:false,error:'VERSION_CONFLICT',currentVersion};
   }
-  const s = reportSheet_();
-  const accounts = {};
-  const normalized = items.map(x => {
-    const account = str_(x.account), kind = str_(x.kind), id = str_(x.id);
-    if (!account || !kind || !id) throw new Error('Invalid config item');
-    accounts[account.toUpperCase()] = true;
-    return [account, kind, id, Number(x.sort||0), x.active === false ? 0 : 1,
-      JSON.stringify(x.data == null ? {} : x.data), new Date().toISOString()];
-  });
-  const lastRow = s.getLastRow();
-  const previous = lastRow > 1 ? s.getRange(2,1,lastRow-1,BRIDGE.REPORT_CONFIG_HEADERS.length).getValues() : [];
-  const kept = previous.filter(row => !accounts[str_(row[0]).toUpperCase()]);
-  const combined = kept.concat(normalized);
-  s.getRange(2,1,combined.length,BRIDGE.REPORT_CONFIG_HEADERS.length).setValues(combined);
+
+  const normalizedRows = normalizedItems.map(x => [
+    x.account, x.kind, x.id, x.sort, x.active ? 1 : 0,
+    JSON.stringify(x.data), x.updatedAt
+  ]);
+  const kept = previous.filter(row => str_(row[0]).toUpperCase() !== accountKey);
+  const combined = kept.concat(normalizedRows);
+
+  if (combined.length) {
+    s.getRange(2,1,combined.length,BRIDGE.REPORT_CONFIG_HEADERS.length).setValues(combined);
+  }
   if (lastRow-1 > combined.length) {
     s.getRange(2+combined.length,1,lastRow-1-combined.length,BRIDGE.REPORT_CONFIG_HEADERS.length).clearContent();
   }
+
   const props = PropertiesService.getScriptProperties();
   const rev = Number(props.getProperty('REPORT_CONFIG_REV') || 1) + 1;
   props.setProperty('REPORT_CONFIG_REV',String(rev));
-  return { ok:true, count:normalized.length, version:rev, requestId:str_(requestId) };
+  return {ok:true,count:normalizedItems.length,version:targetVersion,requestId:str_(requestId)};
+}
+
+function freshStoresForSnapshot_(sheet) {
+  const m = headerMap_(sheet);
+  const cId = must_(m,['list','id']);
+  const cName = must_(m,['name']);
+  const cLoc = must_(m,['location','latlng','lat_lng']);
+  const cMaps = pick_(m,['google_maps','googlemaps','google map','maps','map']);
+  const cVisited = pick_(m,['visited','visit','done']);
+  const cLast = pick_(m,['lastvisiteddate','last_visited_date','visited_date','last_visit_date']);
+  const cAccount = pick_(m,['account']);
+  const cNumber = pick_(m,['number','branch','branch_number','store_no']);
+  const cAccountName = pick_(m,['account_name','accountname','store_name','branch_name']);
+  const cNoted = pick_(m,['noted']);
+  const cRoute = pick_(m,['route','rount','route_no','route_number','routeno','รูท','เส้นทาง']);
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < BRIDGE.DATA_START_ROW) return [];
+  const values = sheet.getRange(
+    BRIDGE.DATA_START_ROW,1,lastRow-BRIDGE.DATA_START_ROW+1,lastCol
+  ).getValues();
+  return values.map(row => {
+    const id = str_(row[cId-1]);
+    const name = str_(row[cName-1]);
+    if (!id || !name) return null;
+    return {
+      id:id,
+      name:name,
+      locationRaw:str_(row[cLoc-1]),
+      mapsUrl:cMaps ? str_(row[cMaps-1]) : '',
+      visited:cVisited ? visited_(row[cVisited-1]) : false,
+      account:cAccount ? str_(row[cAccount-1]) : '',
+      number:cNumber ? str_(row[cNumber-1]) : '',
+      account_name:cAccountName ? str_(row[cAccountName-1]) : '',
+      lastVisitedDate:cLast ? ymd_(row[cLast-1]) : '',
+      route:cRoute ? str_(row[cRoute-1]) : '',
+      noted:cNoted ? str_(row[cNoted-1]) : ''
+    };
+  }).filter(Boolean);
+}
+
+function freshReportConfigSetsForSnapshot_() {
+  const s = reportSheet_();
+  const rows = s.getLastRow() > 1
+    ? s.getRange(2,1,s.getLastRow()-1,BRIDGE.REPORT_CONFIG_HEADERS.length).getValues()
+    : [];
+  const accounts = {};
+  rows.forEach(row => {
+    const account = str_(row[0]);
+    const kind = str_(row[1]);
+    const id = str_(row[2]);
+    if (!account || !kind || !id) return;
+    if (!accounts[account]) accounts[account] = [];
+    accounts[account].push({
+      account:account,
+      kind:kind,
+      id:id,
+      sort:Number(row[3]||0),
+      active:visited_(row[4]),
+      data:parseJson_(row[5]),
+      updatedAt:str_(row[6])
+    });
+  });
+  return Object.keys(accounts).sort().map(account => ({
+    account:account,
+    items:accounts[account].sort((a,b) => a.sort-b.sort || a.id.localeCompare(b.id))
+  }));
+}
+
+function buildFreshSheetSnapshot_() {
+  const ss = getSpreadsheet_();
+  const teams = ss.getSheets()
+    .filter(s => !s.isSheetHidden())
+    .filter(isUsableSheet_)
+    .map(s => ({
+      teamId:s.getName(),
+      name:s.getName(),
+      stores:freshStoresForSnapshot_(s)
+    }));
+  return {
+    complete:true,
+    generatedAt:new Date().toISOString(),
+    teams:teams,
+    reportConfigSets:freshReportConfigSetsForSnapshot_()
+  };
 }
 
 function reportSheet_() {
@@ -332,8 +490,34 @@ function rowById_(s,idCol,id) {
 function getRev_(sheetName) { return Number(PropertiesService.getScriptProperties().getProperty('REV_'+digestKey_(sheetName)) || 1); }
 function bumpRev_(sheetName) { const n=getRev_(sheetName)+1; PropertiesService.getScriptProperties().setProperty('REV_'+digestKey_(sheetName),String(n)); return n; }
 
+function getChunkedCache_(cache, cacheKey) {
+  try {
+    const direct = cache.get(cacheKey);
+    if (direct) return direct;
+    const count = parseInt(cache.get(cacheKey + '_parts') || '0', 10);
+    if (!isFinite(count) || count < 1) return null;
+    const parts = [];
+    for (let i = 0; i < count; i++) {
+      const part = cache.get(cacheKey + '_part_' + i);
+      if (part === null) return null;
+      parts.push(part);
+    }
+    return parts.join('');
+  } catch (_) { return null; }
+}
 
-function digestKey_(v) { return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,String(v))).replace(/=+$/g,'').slice(0,32); }
+function putChunkedCache_(cache, cacheKey, value, ttlSec) {
+  try {
+    const partCount = Math.ceil(value.length / BRIDGE.CACHE_CHUNK_CHARS);
+    for (let i = 0; i < partCount; i++) {
+      cache.put(cacheKey + '_part_' + i,
+        value.slice(i * BRIDGE.CACHE_CHUNK_CHARS, (i + 1) * BRIDGE.CACHE_CHUNK_CHARS), ttlSec);
+    }
+    cache.put(cacheKey + '_parts', String(partCount), ttlSec);
+  } catch (_) {}
+}
+
+function digestKey_(v) { return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,String(v),Utilities.Charset.UTF_8)).replace(/=+$/g,'').slice(0,32); }
 function parseLatLng_(v) { const m=str_(v).match(/-?\d+(?:\.\d+)?/g); if(!m||m.length<2)return null; const lat=Number(m[0]),lng=Number(m[1]); return isFinite(lat)&&isFinite(lng)?{lat,lng}:null; }
 function visited_(v) { if(v===true)return true; const s=str_(v).toLowerCase(); return ['1','true','yes','y','done','visited'].indexOf(s)!==-1; }
 function ymd_(v) { if(Object.prototype.toString.call(v)==='[object Date]'&&!isNaN(v)) return Utilities.formatDate(v,BRIDGE.TIMEZONE,'yyyy-MM-dd'); const s=str_(v); return s ? s.slice(0,10) : ''; }
@@ -341,9 +525,29 @@ function parseJson_(v) { if(v && typeof v==='object')return v; try{return JSON.p
 function str_(v) { return v===null||v===undefined?'':String(v).trim(); }
 function json_(obj) { return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }
 
+function cleanupIdempotencyProps_(props, nowMs) {
+  const nextAt = Number(props.getProperty('IDEMP_GC_NEXT_AT') || 0);
+  if (nowMs < nextAt) return;
+  const cutoff = nowMs - BRIDGE.IDEMPOTENCY_TTL_SEC * 1000;
+  const all = props.getProperties();
+  Object.keys(all).forEach(key => {
+    if (key === 'IDEMP_GC_NEXT_AT' || key.indexOf('IDEMP_') !== 0) return;
+    try {
+      const item = JSON.parse(all[key] || 'null');
+      const started = item && item.startedAt ? Date.parse(item.startedAt) : NaN;
+      if (isFinite(started) && started < cutoff) props.deleteProperty(key);
+    } catch (_) {}
+  });
+  props.setProperty(
+    'IDEMP_GC_NEXT_AT',
+    String(nowMs + BRIDGE.IDEMPOTENCY_GC_INTERVAL_SEC * 1000)
+  );
+}
+
 function runMutation_(action, params, requestId) {
   return withLock_(() => {
     const props = PropertiesService.getScriptProperties();
+    cleanupIdempotencyProps_(props, Date.now());
     const key = 'IDEMP_' + digestKey_(requestId);
     const hash = digestKey_(JSON.stringify({action, params}));
     const previous = JSON.parse(props.getProperty(key) || 'null');

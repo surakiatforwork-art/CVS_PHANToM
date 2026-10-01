@@ -35,8 +35,10 @@ const context={
   Date,JSON,Math,Number,String,Object,Array,Error,isFinite,
   PropertiesService:{getScriptProperties:()=>({
     getProperty:k=>props.get(k)||null,
+    getProperties:()=>Object.fromEntries(props),
     setProperty:(k,v)=>{props.set(k,v);},
     setProperties:(m)=>Object.entries(m).forEach(([k,v])=>props.set(k,v)),
+    deleteProperty:k=>{props.delete(k);},
   })},
   LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock(){}})},
   CacheService:{getScriptCache:()=>({
@@ -44,6 +46,7 @@ const context={
     put:(k,v)=>{cached.set(k,v)},
   })},
   Utilities:{
+    Charset:{UTF_8:'UTF_8'},
     DigestAlgorithm:{SHA_256:'SHA_256'},
     computeDigest:(_a,v)=>[...createHash('sha256').update(String(v)).digest()],
     computeHmacSha256Signature:(v,key)=>[...createHmac('sha256',key).update(v).digest()],
@@ -75,7 +78,7 @@ assert.throws(()=>context.runMutation_('updateRoute',{route:'5'},'pending-key'),
 r=context.runMutation_('updateRoute',{route:'5'},'pending-key');
 assert.equal(r.error,'INDETERMINATE_REQUIRES_RECONCILIATION');
 
-const unsigned={action:'health',params:{},requestId:'',ts:Date.now(),nonce:'nonce-1'};
+const unsigned={method:'POST',path:'/bridge',action:'health',params:{},requestId:'',ts:Date.now(),nonce:'nonce-1'};
 const msg=JSON.stringify(unsigned);
 const signature=createHmac('sha256',props.get('BRIDGE_SECRET')).update(msg).digest('base64url');
 assert.doesNotThrow(()=>context.verifyEnvelope_({...unsigned,signature}));
@@ -83,8 +86,12 @@ assert.throws(()=>context.verifyEnvelope_({...unsigned,signature}),/Replay rejec
 assert.throws(()=>context.verifyEnvelope_({...unsigned,nonce:'nonce-2',signature:'invalid'}),/Invalid bridge signature/);
 
 context.dispatch_=originalDispatch;
-r=context.saveReportConfigBulk_([{account:'ALPHA',kind:'sku',id:'new',sort:1,active:true,data:{label:'test'}}],'bulk-id',1);
+const alphaBefore=context.reportItemsFromRows_(sheetRows.slice(1),'ALPHA');
+const alphaBase=context.reportConfigVersion_(alphaBefore);
+r=context.saveReportConfigBulk_([{account:'ALPHA',kind:'sku',id:'new',sort:1,active:true,data:{label:'test'},updatedAt:'2026-09-30T00:00:00.000Z'}],'bulk-id',alphaBase);
 assert.equal(r.ok,true);
+assert.equal(typeof r.version,'string');
+assert.equal(r.version.length,32);
 const active=sheetRows.slice(1).filter(row=>row[0]);
 assert.equal(active.filter(row=>row[0]==='BETA').length,1,'other account must survive bulk replace');
 assert.equal(active.filter(row=>row[0]==='ALPHA').length,1,'target account should be replaced');

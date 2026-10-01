@@ -1,93 +1,136 @@
-# CVS_PHANToM Backend DEV Progress - 2026-09-30
+# CVS_PHANToM Backend DEV Progress
 
-## Scope
+## Status
 
-This is an isolated **provisional Worker gateway + Apps Script + Google Sheets staging**
-experiment. It is not a Decision Gate A selection or production migration. The
-original frontend, production Apps Script deployment, production Google Sheets, and
-the separately deployed CVS_SME app have not been connected to this experiment.
+**Last updated:** `2026-10-01` (Asia/Bangkok)
+
+This document is the current handoff record for the isolated CVS_PHANToM backend
+experiment. The production frontend, production Apps Script/Sheets path, and CVS_SME
+remain outside this experiment.
+
+The DEV backend is no longer a health-only gateway. It currently consists of:
+
+```text
+DEV client/test
+  -> Cloudflare Worker cvs-phantom-api-dev
+       -> D1 cvs-phantom-db-dev
+       -> durable sync_outbox
+       -> signed Apps Script bridge
+       -> CVS_PHANToM_BACKEND_STAGING Sheet
+
+Worker Cron (*/5)
+  -> every 15 minutes: signed getFreshSheetSnapshot bridge read
+  -> existing D1 reconciliation path
+```
+
+Decision Gate A has **not** been formally approved. D1 was nevertheless created and
+used for an isolated DEV integration experiment. That experiment must not be treated
+as approval for production cutover or CVS_SME adoption.
+
+## Current DEV Resources
+
+| Resource | Current state |
+| --- | --- |
+| Worker | `cvs-phantom-api-dev`, deployed version `02e5d356-3c43-4a91-afb4-b40a428592e1` |
+| Worker schedule | `*/5 * * * *`; Sheet pull is gated to UTC minutes divisible by 15 |
+| D1 | `cvs-phantom-db-dev` |
+| D1 migrations | `0001_init.sql`, `0002_outbox_lease.sql`, `0003_backend_rework.sql` |
+| Apps Script bridge | independent DEV project, deployment `@14` |
+| Staging Sheet | `CVS_PHANToM_BACKEND_STAGING`, Asia/Bangkok |
+| Frontend traffic | unchanged; existing frontend does not call this Worker |
+| Admin mutations | disabled by default: `ENABLE_ADMIN_MUTATIONS=0` |
+| Edge cache | disabled: `ENABLE_EDGE_CACHE=0` |
+| DEV team scope | `DB_GBKK4` only |
+| CVS_SME | isolated and untouched |
+
+Secrets remain outside Git. Worker secret names currently include
+`BRIDGE_URL`, `BRIDGE_SECRET`, `DEV_API_TOKEN`, and `SHEET_SYNC_SECRET`.
 
 ## Implemented
 
-- Wrangler authenticated against the approved Cloudflare account.
-- `workers/cvs-phantom-api-dev/` contains a deployed DEV Worker supporting
-  `/health`, teams, stores, visits, reset (disabled), noted, route/location,
-  report-config reads, and config replacement (disabled).
-- DEV Worker bearer authentication is only for CLI/staging use. It is **not**
-  a production user/session/role-authentication solution.
-- All mutating routes require a persistent `Idempotency-Key`. Route, location,
-  noted and config writes require `baseVersion`; stale field versions return 409.
-- Worker signs Apps Script bridge envelopes with HMAC-SHA256; the bridge checks
-  signature, timestamp, nonce, and action. Only server-side secrets are used.
-- Bridge script is isolated at `apps-script/cvs-phantom-bridge-dev/`. Its source
-  is pushed to an independent Apps Script DEV project and an initial deployment
-  exists. No code was pushed to the production Apps Script project.
-- A separate `CVS_PHANToM_BACKEND_STAGING` Google spreadsheet was created with
-  the `DB_GBKK4` sheet and all 506 populated rows (including the header) from
-  `__REPORT_CONFIG`. The staging spreadsheet timezone is Asia/Bangkok; Drive
-  permission metadata confirms that it is not shared and has only its owner.
-- DEV secret values reside under the owner's local
-  `%LOCALAPPDATA%\CVS_PHANTOM_BACKEND_DEV\`, **outside the Git repository**.
-- D1, Queue and Cron have not been created. Edge caching is disabled by default.
+- Authenticated DEV API reads and operational writes backed by D1.
+- Composite store identity `(team_id, store_id)`.
+- Independent versions for master, noted, route, location, and visit state.
+- Persistent API idempotency receipts.
+- D1 transaction-style batches for operational state + audit + sync outbox.
+- Durable D1 -> Sheet outbox with retry/backoff, lease protection, error/dead state,
+  and Sheet-version shadow tracking.
+- HMAC-SHA256 Worker -> Apps Script bridge requests with timestamp and nonce checks.
+- HMAC-SHA256 Sheet-snapshot ingress with durable nonce replay protection.
+- Sheet reconciliation that distinguishes unchanged Sheet shadow from an intentional
+  manual Sheet edit and can supersede dead conflict jobs.
+- Stale-snapshot protection using `generatedAt`.
+- DEV allowlists for teams and report-config accounts.
+- Worker Cron pull of a fresh staging Sheet snapshot every 15 minutes. The bridge
+  exposes a read-only `getFreshSheetSnapshot` action; Apps Script no longer needs
+  `UrlFetchApp` or `ScriptApp` trigger permissions for reconciliation. Remote D1
+  audit evidence confirms scheduled pulls at 10:15 and 10:30 Asia/Bangkok.
+- Admin reset/report-config mutation gates remain closed except during a bounded DEV
+  test where the config is immediately restored to `0`.
 
-## Verified Tests
+## Verified Evidence
 
-- `node apps-script/cvs-phantom-bridge-dev/test/bridge-smoke.cjs` passed:
-  signed-envelope verification, replay rejection, idempotent replay,
-  same-key/different-payload conflict, fail-closed uncertain outcomes, and
-  report-config replacement preserving other accounts, and stale field-version
-  writes being rejected without modifying the value.
-- `node workers/cvs-phantom-api-dev/test/worker-smoke.mjs` passed.
-- Both source files passed `node --check`; Wrangler `deploy --dry-run` passed.
-- DEV Worker was deployed to `https://cvs-phantom-api-dev.surakiat16082000.workers.dev`.
-  On the deployed version, `GET /health` returned 200, unauthenticated
-  `GET /v1/teams` 401, invalid token 403, and disabled-admin reset 403.
-- Authenticated `GET /v1/teams` currently returns 500 because Google's
-  initially deployed Web App returns 403; this is an **unresolved integration
-  blocker**, not a passing end-to-end test.
+Local/static verification:
 
-## Manual Google Configuration Required
+- `node --check` passes for Worker and bridge source.
+- `worker-smoke.mjs` passes.
+- `bridge-smoke.cjs` passes.
+- `git diff --check` passes.
+- A fresh local D1 applies `0001 -> 0002 -> 0003` successfully and produces the
+  current required schema, including `sync_leases`, `inbound_nonces`,
+  `sheet_*_version`, `report_config_sets.sheet_version`, and outbox `dead` status.
 
-The standalone Apps Script DEV project currently cannot be invoked via
-`clasp run` using the present CLI OAuth configuration. In addition, the
-initial CLI deployment does not offer the required anonymous Web App access.
-The owner must finish DEV-only setup in the Apps Script editor:
+Remote DEV integration evidence:
 
-1. Open the `CVS_PHANToM Bridge DEV` project corresponding to the local
-   `apps-script/cvs-phantom-bridge-dev/.clasp.json`.
-2. Project Settings -> Script Properties: set `SPREADSHEET_ID` to the value
-   in local `staging-spreadsheet-id.txt` and `BRIDGE_SECRET` to the value
-   in local `bridge-secret.txt`. Do not post the secret in chat or commit it.
-3. In the editor select `authorizeDevStaging`, click Run, and approve required
-   Google permissions for the user's own staging spreadsheet.
-4. Deploy -> New deployment -> type **Web app**; execute as the deploying
-   user, access **Anyone**. The signed bridge rejects unauthenticated POSTs.
-5. Supply the **new DEV /exec URL only** to the implementer so the
-   `BRIDGE_URL` Worker secret can be updated. Never send `BRIDGE_SECRET`.
+- Bridge fresh snapshot returns `complete=true`, 1 team, 120 stores, and 8 report
+  config accounts.
+- Route: write -> Sheet projection -> idempotent retry -> stale-version 409 -> restore
+  passed on current Worker/bridge contract.
+- Noted: UTF-8 write -> Sheet projection -> restore passed.
+- Location: write -> Sheet projection -> restore passed.
+- Report config: temporary DEV admin enable -> write -> projection -> idempotent retry
+  -> stale 409 -> restore passed; another account remained unchanged. Admin mutations
+  were then redeployed back to `0`.
+- Snapshot security: bad signature -> 401; a correctly signed invalid snapshot -> 400;
+  replay of the same nonce -> 409 `REPLAYED_SHEET_NONCE`.
+- After E2E restore, D1 and staging Sheet matched for all 120 active stores with
+  **0 version-hash mismatches** across master/noted/route/location/visit.
+- Manual Sheet -> D1 reconciliation passed on staging: `DB_GBKK4!J2` was changed
+  from route `1` to a temporary test value, reconciled into D1 with matching
+  `route_version` / `sheet_route_version`, restored to `1`, reconciled again,
+  and full 120-store parity returned to 0 mismatches.
+- Remote Cron reconciliation produced fresh `sheet_snapshot` audit events with
+  120 stores, 8 config accounts, 505 config items, and `superseded=0`.
 
-Afterward, test authorized read/write on staging only, version conflicts,
-duplicate retries, failure/recovery and report-config isolation, and compare
-staging data before and after. Production must remain unchanged.
+All current remote projection jobs are `done`; the latest status query showed 17
+done and no error/dead outbox rows.
 
-## Known Limitations and Release Gates
+## Remaining Verification Before Frontend Work
 
-- **No end-to-end passing tests yet.** Do not connect the frontend or claim
-  backend readiness until the DEV bridge returns authenticated read/write
-  success and staging parity/recovery tests pass.
-- Script Properties idempotency receipts are durable relative to cache but
-  have finite storage; a failure between the Sheet write and receipt completion
-  leaves a `pending` request requiring manual reconciliation. A bounded
-  retention/archival and recovery procedure must be approved before production.
-- `getPlaces` reads Sheets directly; Apps Script latency and concurrency
-  limits still require representative measurements. No D1 decision has been made.
-- The DEV shared bearer token is not a user/role management scheme. Production
-  identity and per-team authorization must be completed before frontend cutover.
-- Manual Sheet edits can change fields without bumping the sheet-wide revision.
-  The field-content hash detects stale route/location/noted writes, but cannot
-  substitute for a full change log if D1 two-way sync is later selected.
-- Admin reset and Report config replacement remain disabled in Worker DEV
-  until their own tests are complete.
-- Phase 0 p50/p95, request/error rate, user concurrency and operational
-  recovery evidence are incomplete. Decision Gate A remains pending.
-- Do not modify `index.html`, `Tools/*`, production `code.gs.txt`,
-  production Sheets, or CVS_SME within this backend-only task.
+1. Exercise the visit/reset recovery path with a fixture that can be restored safely;
+   do not use production data.
+2. Confirm error/dead-letter recovery with a controlled DEV bridge failure.
+3. Record an explicit release/recovery checklist and a Git checkpoint.
+
+Cron Sheet pull, reversible manual Sheet -> D1 reconciliation, restore, and final
+120-store parity have now been verified.
+
+## Known Boundaries
+
+- The shared DEV bearer token is not production user/role authorization.
+- Production frontend cutover is not approved.
+- Production Sheets/App Script are not part of this DEV backend.
+- CVS_SME must not share Worker, D1, bridge, secrets, or team data with CVS_PHANToM.
+- Phase 0 production workload evidence remains incomplete. The D1 DEV experiment is
+  technical validation, not proof that D1 is required at production scale.
+- Browser visit/noted outboxes have not yet been migrated to the Worker API.
+- Route/location remain online-only in the existing frontend.
+- The Worker Cron pull architecture currently uses full snapshots. At present scale
+  (120 staging stores) this is intentionally simple; larger future datasets require
+  measurement before reuse.
+
+## Safe Next Action
+
+Finish the remaining isolated DEV reconciliation/recovery tests, then create a clean
+Git checkpoint containing only the backend Worker, bridge, migrations, backend docs,
+and required ignore rules. Do not connect `index.html` or `Tools/*` yet.

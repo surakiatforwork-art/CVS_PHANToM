@@ -1,5 +1,11 @@
 # Phase 0 Baseline - 2026-09-30
 
+> Historical baseline only. This file preserves what was observed on 2026-09-30 and
+> must not be read as the current DEV backend state. As of 2026-10-01 an isolated
+> D1-backed DEV Worker, signed Apps Script bridge, staging Sheet, migrations, outbox,
+> and reconciliation experiment exist. See `BACKEND_DEV_PROGRESS_2026-09-30.md`
+> and `WORKER_D1_SHEETS_BACKEND_PLAN.md` for current status.
+
 ## Scope and Safety
 
 This is a read-only baseline for the existing CVS_PHANToM production data path.

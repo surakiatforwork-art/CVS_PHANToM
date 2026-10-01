@@ -2,51 +2,47 @@
 
 ## Status
 
-**Last updated:** `2026-09-30` (Asia/Bangkok)
+**Last updated:** `2026-10-01` (Asia/Bangkok)
 
-This is an active backend-first plan. The current web application must continue using
-Apps Script until the final frontend cutover phase is explicitly approved. Read
-`Implementation Progress` before starting any task; it is the handoff source of truth
-for other agents.
+This is an active backend-first plan. The current production web application remains
+on its existing Apps Script path until frontend cutover is explicitly approved. Read
+`Implementation Progress` and `docs/BACKEND_DEV_PROGRESS_2026-09-30.md` before
+starting any task; together they are the backend handoff source of truth.
 
 ## Implementation Progress
 
 | Work item | Status | Evidence / boundary |
 | --- | --- | --- |
-| Cloudflare tooling and account authentication | Complete | `wrangler 4.144.0` is installed and account access was verified. Do not store or commit OAuth credentials. |
-| Read-only Cloudflare account check | Complete | Confirmed before any resource creation. |
-| Worker DEV bootstrap (Phase 0A) | Complete | Initial health-only scaffold was validated before starting the isolated DEV gateway experiment. |
-| Worker DEV gateway experiment (Phase 0B, provisional) | Deployed to DEV, end-to-end pending | Worker DEV implements authenticated read/write API contracts; secrets are configured only for DEV. Remote health 200, missing-token 401, invalid-token 403, disabled-admin 403. Authenticated bridge reads currently fail because Google Web App access/configuration is pending; no frontend traffic. |
-| Phase 0 static/outbox review | Complete | Existing API, cache, Apps Script lock, local cache, and visit/noted outbox behavior recorded in `docs/PHASE_0_BASELINE_2026-09-30.md`. |
-| Phase 0 single-read Sheet snapshot | Complete | Read-only counts, uniqueness, field-presence, response sizes, and successful request timing for all usable sheets recorded in the baseline document. |
-| Phase 0 p50/p95, failure-rate, active-user, quota, and outbox-volume measurement | Incomplete / needs telemetry | Individual successful reads and sampling stalls are recorded; a valid 7-day observation set is unavailable. Do not make Decision Gate A yet. |
-| DEV Apps Script bridge and staging Sheets | Created; live bridge access pending | Independent standalone DEV bridge source uploaded and deployment created; staging spreadsheet is a copy of DB_GBKK4 and all 506 REPORT_CONFIG rows. Google currently returns HTTP 403 on Web App GET. Owner must set Script Properties/authorization and configure Web App access; only DEV/staging may be used. |
-| Decision Gate A: Worker gateway only vs Worker plus D1 | Blocked by incomplete Phase 0 metrics | No D1 decision has been approved. |
-| Phase 1 D1 foundation | Not started; D1 not created | The provisional gateway DEV experiment is not Decision Gate A approval. D1 remains blocked pending sufficient evidence and explicit approval. |
-| Production frontend/App Script data path | Not started | `index.html`, `Tools/Report.html`, `Tools/ReportAdmin.html`, and deployed Apps Script remain unchanged by this backend work. |
-| CVS_SME adoption | Not started | CVS_SME has active users and must not use any CVS_PHANToM Cloudflare or Sheets resource. |
+| Cloudflare tooling and account authentication | Complete | `wrangler 4.144.0` authenticated against the approved account. Credentials stay outside Git. |
+| Worker DEV bootstrap | Complete | Initial health-only scaffold was validated before backend integration work. |
+| Worker DEV operational API | Deployed / verified in isolated DEV | D1-backed authenticated read/write API is deployed. Route/noted/location/report-config E2E projection, retry, conflict and restore tests passed on staging. Frontend traffic remains unchanged. |
+| D1 DEV foundation | Created / migrations reproducible | `cvs-phantom-db-dev` exists with migrations `0001`, `0002`, `0003`. A fresh local D1 applies the same sequence successfully. |
+| DEV Apps Script bridge | Deployed / verified | Independent DEV bridge is deployed at version `@14`; signed bridge reads and D1->Sheet writes work against staging. |
+| Sheet -> D1 reconciliation | Verified in isolated DEV | Worker Cron runs every 5 minutes and pulls a fresh signed bridge snapshot every 15 minutes. Remote audit events at 10:15 and 10:30 Asia/Bangkok confirm scheduled pulls. A reversible manual staging-Sheet route edit reconciled into D1, was restored, and full parity returned to 0 mismatches. |
+| DEV staging parity | Passed after current E2E restore | 120 D1 stores vs 120 staging Sheet stores; 0 version-hash mismatches across master/noted/route/location/visit. |
+| Snapshot security | Passed | Invalid signature 401; malformed signed snapshot 400; replayed nonce 409. |
+| Report-config admin write test | Passed, gate re-closed | Temporary DEV-only enable was used for write/retry/stale/restore; another account stayed unchanged; `ENABLE_ADMIN_MUTATIONS=0` is deployed again. |
+| Phase 0 production workload measurement | Incomplete / needs telemetry | Historical baseline still lacks representative p50/p95, failure, active-user, quota and outbox-volume evidence. |
+| Decision Gate A: Worker gateway only vs Worker plus D1 | Not formally approved | D1 exists only as an isolated DEV experiment. Its existence is not production architecture approval. |
+| Production frontend/App Script data path | Unchanged | `index.html`, `Tools/*`, production Apps Script and production Sheets have not been connected to this Worker. |
+| CVS_SME adoption | Not started / isolated | CVS_SME must not share CVS_PHANToM Worker, D1, bridge, secrets or team data. |
 
 ### Current Safe Next Action
 
-Finish and verify the independent DEV gateway without changing production. Complete
-Apps Script bridge Script Properties and Web App authorization/access, then test
-authenticated read/write operations against the staging spreadsheet only. Verify
-field-version 409 conflicts, durable idempotency receipts, pending-request recovery,
-report-config account isolation, secret rejection and realistic failure handling.
-Document actual test evidence and unresolved limits in
-`docs/BACKEND_DEV_PROGRESS_2026-09-30.md`. Continue permitted passive Phase 0
-observations separately; the DEV experiment does not replace the missing seven-day
-measurements or approve D1. Do not connect the existing frontend until a separate
-integration decision is explicitly approved.
+Finish the remaining isolated DEV recovery checks: exercise a safely restorable
+visit/reset fixture and a controlled bridge-failure/dead-letter recovery path, then
+create a clean Git checkpoint containing only backend Worker/bridge/migrations/docs.
+Cron Sheet pull, reversible manual Sheet -> D1 reconciliation, restore, and 120-store
+parity are already verified. Do not connect the existing frontend yet.
 
 ### Explicit Stop Conditions
 
-- Do not create a D1 database, Queue, Cron trigger, or production Apps Script bridge.
-  The existing DEV-only secrets and isolated DEV bridge are permitted for staging tests.
-- Do not redirect, proxy, or shadow production frontend traffic through the Worker.
-- Do not modify production Sheets or initiate production API mutations for tests or baseline collection.
-- Do not add credentials to the repository, and do not enable admin mutations before their tests pass.
-- Do not copy this work into CVS_SME until Phase 9's prerequisite is met.
+- Do not connect production frontend traffic to the DEV Worker.
+- Do not point the DEV bridge or D1 at production Sheets.
+- Do not use production data for deliberate mutation/failure tests.
+- Do not leave `ENABLE_ADMIN_MUTATIONS=1` after a bounded DEV test.
+- Do not add credentials, local `.dev.vars`, Wrangler state, or local secret files to Git.
+- Do not copy this work into CVS_SME until the CVS_PHANToM backend release gate is met.
 
 ## Repository and Rollout Roles
 
@@ -110,11 +106,11 @@ operational review.
 | Route/location offline outbox | No | Not initial migration scope; online-only |
 | Place local cache | Yes | Retain with Worker revision/ETag |
 | Report iframe/prefill/history | Yes/browser-local | Preserve unchanged initially |
-| Apps Script authentication | No | Private signed Worker bridge |
-| Worker DEV scaffold and gateway | Gateway implemented and deployed for isolated DEV/staging testing; live bridge integration pending | Reuse `workers/cvs-phantom-api-dev/` after gateway-only versus D1 decision |
-| Production-ready operational Worker API | Not implemented; DEV API is provisional, shared DEV bearer token only | Gateway or D1-backed production API plus role authorization selected after Decision Gate A |
-| D1 | Not created | Create only after sufficient Phase 0 metrics and explicit D1 approval at Decision Gate A |
-| Manual Google Sheet editing | Yes | Preserve through durable change capture |
+| Apps Script authentication | DEV bridge uses private signed Worker requests; production path still unauthenticated legacy Apps Script | Production bridge must retain server-only signed authentication |
+| Worker DEV scaffold and gateway | D1-backed DEV API and bridge are deployed and E2E-tested on staging; frontend not connected | Keep isolated until release gate and frontend integration approval |
+| Production-ready operational Worker API | Not yet; current DEV API still uses a shared DEV bearer token | Add production identity/role authorization and rollout controls before frontend cutover |
+| D1 | Created in isolated DEV only; migrations 0001-0003 applied | Treat as technical experiment until Decision Gate A is formally resolved |
+| Manual Google Sheet editing | Yes; staging reconciliation path implemented with Worker Cron pull | Preserve manual editing with versioned reconciliation and recovery checks |
 
 ## D1 Go / No-Go Decision
 
@@ -127,12 +123,16 @@ ability to operate two-way sync.
 | A | Browser -> Worker -> private Apps Script -> Sheets | Gateway-only meets measured scale and latency targets |
 | B | Browser -> Worker -> D1 <-> Google Sheets | Concurrent reads/writes and operational reliability justify sync complexity |
 
-**Decision Gate A:** after Phase 0, either stop at Worker gateway plus Sheets, or
-explicitly approve the D1 path. No fixed threshold is assumed before metrics exist. Record measured coverage, missing
-metrics, future assumptions, approved targets, operational cost/recovery capacity,
-and the rationale for A or B. Missing evidence keeps the gate pending; the scaffold
-and intermittent reads do not constitute D1 approval. If A is selected, re-scope a
-gateway-only implementation plan before proceeding; the D1 phases below do not apply.
+**Decision Gate A:** after Phase 0, either select Worker gateway plus Sheets or
+explicitly approve the D1 path for production. No fixed threshold is assumed before
+metrics exist. Record measured coverage, missing metrics, future assumptions, approved
+targets, operational cost/recovery capacity, and the rationale for A or B.
+
+An isolated D1 DEV experiment now exists and has passing staging integration evidence.
+This is a technical experiment only and does **not** retroactively approve Option B for
+production. Missing production workload evidence keeps the formal gate pending. If A
+is ultimately selected, the DEV D1 experiment is retired or retained only as test
+evidence and the production plan is re-scoped to gateway-only.
 
 ## Phase 0 Measurement Method
 
@@ -154,7 +154,7 @@ deployment, or resource creation are authorized for baseline collection.
 | Outbox replay volume | Passive snapshots of visit/noted queue count/oldest age and existing normal replay observations, without editing localStorage or invoking Sync. | Snapshot deltas do not prove replay counts: noted entries coalesce and new items arrive. Exact attempts/successes unavailable/needs telemetry without event records. |
 | Sheet/config size | Existing read-only exports or Sheets inspection for physical row/column/config counts; API response counts and bytes separately. | `getPlaces` omits rows without ID/name. API counts are not physical Sheet dimensions; avoid `getReportConfig` probes because its helper can create/unhide the config tab. |
 | Reconciliation / data validity | Compare read-only exports and API snapshots by sheet/ID at aligned times; record count/state differences and explicit route/location validity rules. | Cache/revision timing and intervening normal edits may differ; presence counts alone do not establish validity or parity. |
-| Two-way sync operating readiness | Document owner review of alert ownership, conflict handling, retries, reconciliation, restore responsibilities, operating time budget, and acceptable sync lag. | Not assessed; no live sync exists. Later recovery validation needs an approved isolated staging task. |
+| Two-way sync operating readiness | Isolated staging sync now exists: D1->Sheet outbox is E2E-tested and Worker Cron Sheet->D1 pull is deployed. Document owner review of alert ownership, conflict handling, retries, reconciliation, restore responsibilities, operating time budget, and acceptable sync lag. | Technical path exists, but scheduled-pull observation, deliberate manual-edit reconciliation, controlled failure recovery, and production operating ownership remain incomplete. |
 
 For any deliberate read probe use one in-flight request, at least 60 seconds between
 requests, at most 10 requests per session, and a 60-second timeout; stop on first

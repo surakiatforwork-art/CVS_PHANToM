@@ -6,9 +6,23 @@
   "workers_dev": true,
   "vars": {
     "ENVIRONMENT": "development",
-    "BRIDGE_TIMEOUT_MS": "20000",
+    "BRIDGE_TIMEOUT_MS": "45000",
     "ENABLE_EDGE_CACHE": "0",
-    "ALLOWED_ORIGINS": ""
+    "ALLOWED_ORIGINS": "",
+    "DEV_ALLOWED_TEAMS": "DB_GBKK4",
+    "DEV_ALLOWED_REPORT_ACCOUNTS": "7-ELEVEN,CJ MORE,JIFFY,LAWSON,LOTUS'S GO FRESH,MINI BIG C,TOPS DAILY,VILLA MARKET",
+    "ENABLE_ADMIN_MUTATIONS": "0"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cvs-phantom-db-dev",
+      "database_id": "e865c4d4-2f33-4391-86da-29ecf49852f1",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
   },
   "observability": {
     "enabled": true,
