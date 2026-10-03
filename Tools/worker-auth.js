@@ -1,7 +1,7 @@
 (function(root){
   'use strict';
 
-  var WORKER_URL = 'https://cvs-phantom-api-dev.surakiat16082000.workers.dev';
+  var WORKER_URL = 'https://cvs-phantom-api.surakiat16082000.workers.dev';
   var STORAGE_KEY = 'PT_WORKER_SESSION_V1';
   var pendingLogin = null;
 

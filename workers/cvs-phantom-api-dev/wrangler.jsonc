@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "cvs-phantom-api-dev",
+  "name": "cvs-phantom-api",
   "main": "src/index.js",
   "compatibility_date": "2026-09-30",
   "workers_dev": true,
@@ -10,8 +10,8 @@
     "ENABLE_EDGE_CACHE": "0",
     "ALLOWED_ORIGINS": "https://sme-cvse20.vercel.app,https://surakiatforwork-art.github.io",
     "SESSION_TTL_SEC": "43200",
-    "DEV_ALLOWED_TEAMS": "DB_GBKK4,DB_GBKK2,SME_CVS20",
-    "DEV_ALLOWED_REPORT_ACCOUNTS": "7-ELEVEN,CJ MORE,JIFFY,LAWSON,LOTUS'S GO FRESH,MINI BIG C,TOPS DAILY,VILLA MARKET",
+    "ALLOWED_TEAMS": "DB_GBKK4,DB_GBKK2,SME_CVS20",
+    "ALLOWED_REPORT_ACCOUNTS": "7-ELEVEN,CJ MORE,JIFFY,LAWSON,LOTUS'S GO FRESH,MINI BIG C,TOPS DAILY,VILLA MARKET",
     "ENABLE_ADMIN_MUTATIONS": "1"
   },
   "d1_databases": [

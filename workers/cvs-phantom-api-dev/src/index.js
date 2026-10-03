@@ -20,7 +20,7 @@ export default {
       if (request.method === "GET" && url.pathname === "/health") {
         return json({
           ok: true,
-          service: "cvs-phantom-api-dev",
+          service: "cvs-phantom-api",
           environment: env.ENVIRONMENT || "development",
           backend: env.DB ? "d1" : "unconfigured",
           authConfigured: Boolean(env.DEV_API_TOKEN || env.SESSION_SECRET),
@@ -66,7 +66,7 @@ export default {
 
       const route = matchRoute(request.method, url.pathname);
       if (!route) return json({ ok: false, error: "Not found" }, 404);
-      enforceDevScope(env, route);
+      enforceScope(env, route);
       if (route.admin && !["admin","service"].includes(String(auth.role || ""))) {
         return withCors(json({ ok:false,error:"ADMIN_REQUIRED" },403), request, env);
       }
@@ -187,7 +187,7 @@ async function getTeams(env) {
   const { results = [] } = await env.DB.prepare(
     "SELECT team_id,name FROM teams WHERE active=1 ORDER BY team_id"
   ).all();
-  const allowedTeams = devAllowlist(env.DEV_ALLOWED_TEAMS);
+  const allowedTeams = parseAllowlist(env.ALLOWED_TEAMS);
   const teams = results.filter(r => !allowedTeams.length || allowedTeams.includes(String(r.team_id)))
     .map(r => ({ id: r.team_id, name: r.name }));
   return json({ ok: true, defaultTeamId: teams[0]?.id || "", teams });
@@ -1047,13 +1047,13 @@ async function handleSheetSnapshot(request, env) {
   if (!teamsInput.length || teamsInput.length > 20) {
     throw new HttpError(400,"BAD_REQUEST","Invalid teams snapshot");
   }
-  const scopedTeams = devAllowlist(env.DEV_ALLOWED_TEAMS);
+  const scopedTeams = parseAllowlist(env.ALLOWED_TEAMS);
   if (scopedTeams.length && teamsInput.some(t => !scopedTeams.includes(String(t.teamId || t.sheet || "").trim()))) {
-    throw new HttpError(403,"DEV_SCOPE_FORBIDDEN","Snapshot includes a team outside this DEV scope");
+    throw new HttpError(403,"SCOPE_FORBIDDEN","Snapshot includes a team outside the allowed production scope");
   }
-  const scopedAccounts = devAllowlist(env.DEV_ALLOWED_REPORT_ACCOUNTS);
+  const scopedAccounts = parseAllowlist(env.ALLOWED_REPORT_ACCOUNTS);
   if (scopedAccounts.length && configInput.some(s => !scopedAccounts.includes(String(s.account || "").trim()))) {
-    throw new HttpError(403,"DEV_SCOPE_FORBIDDEN","Snapshot includes a report account outside this DEV scope");
+    throw new HttpError(403,"SCOPE_FORBIDDEN","Snapshot includes a report account outside the allowed production scope");
   }
 
   const now = new Date().toISOString();
@@ -1518,17 +1518,17 @@ async function verifySessionToken(token, secret) {
   return payload;
 }
 
-function enforceDevScope(env, route) {
-  const teams = devAllowlist(env.DEV_ALLOWED_TEAMS);
-  const accounts = devAllowlist(env.DEV_ALLOWED_REPORT_ACCOUNTS);
+function enforceScope(env, route) {
+  const teams = parseAllowlist(env.ALLOWED_TEAMS);
+  const accounts = parseAllowlist(env.ALLOWED_REPORT_ACCOUNTS);
   if (route.teamId && teams.length && !teams.includes(String(route.teamId))) {
-    throw new HttpError(403,"DEV_SCOPE_FORBIDDEN","Team is outside this DEV service-token scope");
+    throw new HttpError(403,"SCOPE_FORBIDDEN","Team is outside the allowed service-token scope");
   }
   if (route.account && accounts.length && !accounts.includes(String(route.account))) {
-    throw new HttpError(403,"DEV_SCOPE_FORBIDDEN","Report account is outside this DEV service-token scope");
+    throw new HttpError(403,"SCOPE_FORBIDDEN","Report account is outside the allowed service-token scope");
   }
 }
-function devAllowlist(raw) { return String(raw || "").split(",").map(x=>x.trim()).filter(Boolean); }
+function parseAllowlist(raw) { return String(raw || "").split(",").map(x=>x.trim()).filter(Boolean); }
 
 function requireIdempotencyKey(request) {
   const id = String(request.headers.get("Idempotency-Key") || "").trim();

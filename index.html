@@ -2248,14 +2248,14 @@
     return await jsonp(url, 30000);
   }
 
-  // Worker mode is intentionally opt-in and needs a future short-lived browser
-  // session provider. The DEV bearer token is never read by this page.
+  // Production Worker access uses short-lived browser sessions.
+  // Service credentials are never embedded in this page.
   function createBackendClient_(){
     var pilot = window.__PT_WORKER_PILOT__ || {};
     var wantsWorker = pilot.mode === 'worker' && typeof pilot.getAuthorization === 'function';
     return window.PTBackendClient.create({
       mode:wantsWorker ? 'worker' : 'apps-script',
-      workerUrl:'https://cvs-phantom-api-dev.surakiat16082000.workers.dev',
+      workerUrl:'https://cvs-phantom-api.surakiat16082000.workers.dev',
       getAuthorization:wantsWorker ? pilot.getAuthorization : null,
       clearAuthorization:wantsWorker ? pilot.clearAuthorization : null,
       legacy:{
