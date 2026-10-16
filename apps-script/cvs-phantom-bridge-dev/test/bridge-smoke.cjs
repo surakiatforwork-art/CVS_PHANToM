@@ -97,6 +97,27 @@ assert.equal(active.filter(row=>row[0]==='BETA').length,1,'other account must su
 assert.equal(active.filter(row=>row[0]==='ALPHA').length,1,'target account should be replaced');
 assert.equal(active.find(row=>row[0]==='ALPHA')[2],'new');
 
+const resetRows=[
+  ['list','visited','lastVisitedDate'],
+  ['1',1,'2026-10-15'],
+  ['2',1,'2026-10-14'],
+];
+context.sheet_=()=>({
+  getName:()=> 'DB_GBKK4',
+  getLastRow:()=> resetRows.length,
+  getRange:(r,c,n,m)=>({
+    setValue:v=>{ for(let i=0;i<n;i++) resetRows[r-1+i][c-1]=v; },
+  }),
+});
+context.headerMap_=()=>({list:1,visited:2,lastvisiteddate:3});
+r=context.resetVisitedAll_('DB_GBKK4');
+assert.equal(r.ok,true);
+assert.equal(r.preservedLastVisitedDate,true);
+assert.equal(resetRows[1][1],0);
+assert.equal(resetRows[2][1],0);
+assert.equal(resetRows[1][2],'2026-10-15','reset must preserve lastVisitedDate');
+assert.equal(resetRows[2][2],'2026-10-14','reset must preserve lastVisitedDate');
+
 let routeValue='old';
 context.sheet_=()=>({
   getName:()=> 'DB_GBKK4',

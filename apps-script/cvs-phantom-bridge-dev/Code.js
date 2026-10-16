@@ -243,13 +243,9 @@ function markVisited_(sheetName, id, baseVersion) {
 function resetVisitedAll_(sheetName) {
   const s = sheet_(sheetName), m = headerMap_(s);
   const cVisited = must_(m,['visited','visit','done']);
-  const cLast = pick_(m,['lastvisiteddate','last_visited_date','visited_date','last_visit_date']);
   const n = Math.max(0,s.getLastRow()-BRIDGE.DATA_START_ROW+1);
-  if (n) {
-    s.getRange(BRIDGE.DATA_START_ROW,cVisited,n,1).setValue(0);
-    if (cLast) s.getRange(BRIDGE.DATA_START_ROW,cLast,n,1).clearContent();
-  }
-  return { ok:true, rev:bumpRev_(s.getName()), reset:n };
+  if (n) s.getRange(BRIDGE.DATA_START_ROW,cVisited,n,1).setValue(0);
+  return { ok:true, rev:bumpRev_(s.getName()), reset:n, preservedLastVisitedDate:true };
 }
 
 function saveNoted_(sheetName, id, noted, baseVersion) {
