@@ -787,6 +787,10 @@ async function resolveSimpleIdempotency(env, requestId, requestHash) {
   throw new HttpError(409, "IDEMPOTENCY_IN_PROGRESS", "Request is still being resolved");
 }
 
+function bridgeConfigured_(env) {
+  return Boolean(env.BRIDGE_URL && env.BRIDGE_SECRET);
+}
+
 async function runSyncCycle(env, trigger = "scheduled", force = false) {
   if (!env.DB || !bridgeConfigured_(env) || !env.SHEET_SYNC_SECRET) {
     return {ok:false,error:"SYNC_NOT_CONFIGURED"};
