@@ -7,6 +7,8 @@ const BRIDGE = {
   IDEMPOTENCY_GC_INTERVAL_SEC: 3600,
   CACHE_TTL_SEC: 300,
   CACHE_CHUNK_CHARS: 25000,
+  FIELD_SYNC_SHEET: '__SYNC_FIELD_TIMES',
+  FIELD_SYNC_HEADERS: ['teamId','storeId','field','version','changedAt'],
   REPORT_CONFIG_SHEET: '__REPORT_CONFIG',
   REPORT_CONFIG_HEADERS: ['account','kind','id','sort','active','data','updatedAt'],
 };
@@ -132,6 +134,99 @@ function withLock_(fn) {
   try { return fn(); } finally { lock.releaseLock(); }
 }
 
+// Standalone Apps Script projects require an installable spreadsheet edit
+// trigger; the simple onEdit trigger does NOT run for this project type.
+function installFieldTrackingTrigger() {
+  const ss=getSpreadsheet_();
+  for (const trigger of ScriptApp.getProjectTriggers()) {
+    if (trigger.getHandlerFunction()==='onTrackedSheetEdit_') ScriptApp.deleteTrigger(trigger);
+  }
+  ScriptApp.newTrigger('onTrackedSheetEdit_').forSpreadsheet(ss).onEdit().create();
+  fieldMetaSheet_();
+  return {ok:true,trigger:'onTrackedSheetEdit_',spreadsheet: ss.getName()};
+}
+
+function fieldMetaSheet_() {
+  const ss=getSpreadsheet_();
+  let sh=ss.getSheetByName(BRIDGE.FIELD_SYNC_SHEET);
+  if (!sh) {
+    sh=ss.insertSheet(BRIDGE.FIELD_SYNC_SHEET);
+    sh.getRange(1,1,1,5).setValues([BRIDGE.FIELD_SYNC_HEADERS]);
+    sh.hideSheet();
+  }
+  return sh;
+}
+function fieldMetaIndex_(){
+  const ss=getSpreadsheet_(), sh=ss.getSheetByName(BRIDGE.FIELD_SYNC_SHEET);
+  const out=Object.create(null);
+  if (!sh || sh.getLastRow()<2) return out;
+  const rows=sh.getRange(2,1,sh.getLastRow()-1,5).getValues();
+  for (const [team,id,field,version,changedAt] of rows) {
+    if (!team||!id||!field||!version||!changedAt) continue;
+    const key=String(team)+'|'+String(id);
+    if (!out[key]) out[key]={};
+    out[key][String(field)]={version:String(version),changedAt:String(changedAt)};
+  }
+  return out;
+}
+function recordFieldTime_(team,id,field,version,at) {
+  const sh=fieldMetaSheet_(),n=sh.getLastRow();
+  const key=[String(team),String(id),String(field)];
+  if (n>1) {
+    const keys=sh.getRange(2,1,n-1,3).getValues();
+    for(let i=0;i<keys.length;i++){
+      if(keys[i][0]===key[0]&&keys[i][1]===key[1]&&keys[i][2]===key[2]){
+        sh.getRange(i+2,4,1,2).setValues([[String(version),String(at)]]);
+        return;
+      }
+    }
+  }
+  sh.appendRow(key.concat([String(version),String(at)]));
+}
+function onTrackedSheetEdit_(e){
+  if (!e || !e.range) return;
+  const sh=e.range.getSheet();
+  if (sh.isSheetHidden() || !isUsableSheet_(sh)) return;
+  // Event processing timestamp, not snapshot/pull timestamp.
+  const at=new Date().toISOString();
+  withLock_(()=>{
+    const map=headerMap_(sh);
+    const idCol=must_(map,['list','id']);
+    const cVisited=pick_(map,['visited','visit','done']);
+    const cDate=pick_(map,['lastvisiteddate','last_visited_date','visited_date','last_visit_date']);
+    const columns=[
+      ['noted',pick_(map,['noted'])],
+      ['route',pick_(map,['route','rount','route_no','route_number','routeno','รูท','เส้นทาง'])],
+      ['location',pick_(map,['location','latlng','lat_lng'])],
+      ['visit',cVisited],['visit',cDate],
+    ];
+    const left=e.range.getColumn(),right=left+e.range.getNumColumns()-1;
+    const modified=[...new Set(columns.filter(x=>x[1]>=left&&x[1]<=right).map(x=>x[0]))];
+    if (!modified.length)return {ok:true,tracked:0};
+    let tracked=0;
+    const first=Math.max(2,e.range.getRow());
+    const last=e.range.getLastRow();
+    for(let row=first;row<=last;row++){
+      const id=str_(sh.getRange(row,idCol).getValue());
+      if (!id)continue;
+      for(const field of modified){
+        let value='';
+        if(field==='visit'){
+          const yes=cVisited?visited_(sh.getRange(row,cVisited).getValue()):false;
+          const date=cDate?ymd_(sh.getRange(row,cDate).getValue()):'';
+          value=(yes?'1':'0')+'|'+date;
+        }else{
+          const col=columns.find(x=>x[0]===field)[1];
+          value=str_(sh.getRange(row,col).getValue());
+        }
+        recordFieldTime_(sh.getName(),id,field,digestKey_(value),at);
+        tracked++;
+      }
+    }
+    return {ok:true,tracked};
+  });
+}
+
 function getSpreadsheet_() {
   const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
   if (!id) throw new Error('SPREADSHEET_ID is not configured');
@@ -236,6 +331,7 @@ function markVisited_(sheetName, id, baseVersion) {
   }
   s.getRange(row,cVisited).setValue(1);
   if (cLast) s.getRange(row,cLast).setValue(today);
+  recordFieldTime_(s.getName(),String(id),'visit',targetVersion,new Date().toISOString());
   return {ok:true,rev:bumpRev_(s.getName()),id:String(id),visited:true,
     lastVisitedDate:cLast ? today : '',visitVersion:targetVersion};
 }
@@ -278,6 +374,7 @@ function setField_(sheetName,id,aliases,value,field,baseVersion) {
     return {ok:false,error:'VERSION_CONFLICT',currentVersion,currentValue:oldValue};
   }
   s.getRange(row,col).setValue(targetValue);
+  recordFieldTime_(s.getName(),String(id),field,targetVersion,new Date().toISOString());
   return {ok:true,rev:bumpRev_(s.getName()),id:String(id),field,value:targetValue,version:targetVersion};
 }
 
@@ -429,13 +526,16 @@ function freshReportConfigSetsForSnapshot_() {
 
 function buildFreshSheetSnapshot_() {
   const ss = getSpreadsheet_();
+  const fieldTimes=fieldMetaIndex_();
   const teams = ss.getSheets()
     .filter(s => !s.isSheetHidden())
     .filter(isUsableSheet_)
     .map(s => ({
       teamId:s.getName(),
       name:s.getName(),
-      stores:freshStoresForSnapshot_(s)
+      stores:freshStoresForSnapshot_(s).map(store=>({
+        ...store,fieldMeta:fieldTimes[s.getName()+'|'+store.id]||{}
+      }))
     }));
   return {
     complete:true,
