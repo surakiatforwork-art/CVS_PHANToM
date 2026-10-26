@@ -150,8 +150,13 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    // Keep the outbox responsive while reducing full Google Sheets pulls.
     ctx.waitUntil(processOutbox(env, 20));
-    ctx.waitUntil(pullFreshSheetSnapshot(env));
+    const interval = Math.max(5, Number(env.SHEET_PULL_INTERVAL_MIN || 15));
+    const scheduledAt = Number(event?.scheduledTime || Date.now());
+    if (new Date(scheduledAt).getUTCMinutes() % interval === 0) {
+      ctx.waitUntil(pullFreshSheetSnapshot(env));
+    }
   },
 };
 
@@ -1316,16 +1321,35 @@ async function handleSheetSnapshot(request, env) {
         OR teams.active IS NOT 1`
   ).bind(teamsJson));
 
+  // Avoid scanning/upserting every store on each scheduled Sheet reconciliation.
+  // An unchanged snapshot should produce no store SQL statements.
+  const storeVersionColumns = [
+    "master_version", "noted_version", "route_version", "location_version",
+    "visit_version", "sheet_noted_version", "sheet_route_version",
+    "sheet_location_version", "sheet_visit_version", "source_active",
+  ];
   for (const team of normalizedTeams) {
-    const storesJson = JSON.stringify(normalizedByTeam.get(team.team_id) || []);
-    statements.push(env.DB.prepare(
-      `UPDATE stores
-          SET source_active=0,updated_at=?
-        WHERE team_id=? AND source_active=1
-          AND store_id NOT IN (
-            SELECT json_extract(value,'$.store_id') FROM json_each(?)
-          )`
-    ).bind(now, team.team_id, storesJson));
+    const incomingStores = normalizedByTeam.get(team.team_id) || [];
+    const snapshotIds = new Set(incomingStores.map(store => String(store.store_id)));
+    const missingIds = [...existingStores.values()]
+      .filter(old => String(old.team_id) === team.team_id &&
+        Number(old.source_active) === 1 && !snapshotIds.has(String(old.store_id)))
+      .map(old => String(old.store_id));
+    if (missingIds.length) {
+      statements.push(env.DB.prepare(
+        `UPDATE stores
+            SET source_active=0,updated_at=?
+          WHERE team_id=? AND source_active=1
+            AND store_id IN (SELECT value FROM json_each(?))`
+      ).bind(now, team.team_id, JSON.stringify(missingIds)));
+    }
+
+    const changedStores = incomingStores.filter(store => {
+      const old = existingStores.get(team.team_id + "\u0000" + store.store_id);
+      return !old || storeVersionColumns.some(col =>
+        String(old[col] ?? "") !== String(store[col] ?? ""));
+    });
+    if (!changedStores.length) continue;
     statements.push(env.DB.prepare(
       `INSERT INTO stores(
         team_id,store_id,name,location_raw,lat,lng,maps_url,account,number,account_name,
@@ -1364,7 +1388,7 @@ async function handleSheetSnapshot(request, env) {
           OR stores.sheet_location_version IS NOT excluded.sheet_location_version
           OR stores.sheet_visit_version IS NOT excluded.sheet_visit_version
           OR stores.source_active IS NOT excluded.source_active`
-    ).bind(storesJson));
+    ).bind(JSON.stringify(changedStores)));
   }
 
   if (deleteAccounts.length) {
