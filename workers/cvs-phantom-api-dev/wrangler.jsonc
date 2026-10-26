@@ -7,7 +7,7 @@
   "vars": {
     "ENVIRONMENT": "production",
     "BRIDGE_TIMEOUT_MS": "45000",
-    "SHEET_PULL_INTERVAL_MIN": "15",
+    "SHEET_PULL_INTERVAL_MIN": "60",
     "ENABLE_EDGE_CACHE": "0",
     "ALLOWED_ORIGINS": "https://sme-cvse20.vercel.app,https://surakiatforwork-art.github.io",
     "SESSION_TTL_SEC": "43200",
@@ -24,7 +24,7 @@
     }
   ],
   "triggers": {
-    "crons": ["*/5 * * * *"]
+    "crons": ["0 * * * *"]
   },
   "observability": {
     "enabled": true,
