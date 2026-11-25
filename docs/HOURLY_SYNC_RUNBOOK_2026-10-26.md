@@ -19,7 +19,7 @@
 ## Operations
 - `GET /internal/sync-history` (admin only): last 15 sync runs and latest 25 dead outbox records.
 - `POST /internal/sync` (admin only) body `{"force":true}` bypasses fingerprint checks.
-- A cycle will send up to 100 queued projections. Pending/error counts in its result indicate incomplete work; do not tell users it is fully synchronized when pending > 0.
+- A cycle attempts up to 3 queued projections, plus up to 3 more after report-config LWW reconciliation when needed. This bounds bridge requests, redirects, and readback within Cloudflare free-tier subrequest limits. Pending/error counts in its result indicate incomplete work; do not tell users it is fully synchronized when pending > 0.
 - Errors and conflicts are visible in ReportAdmin. Conflicts require manual review and resolution; the system intentionally does not overwrite either side.
 - Data updates while an hourly cycle is running are protected by D1 optimistic field versions.
 - `sync_runs` retains 90 days after daily deep reconciliation. `audit_events` are not modified.

@@ -921,12 +921,13 @@ async function runSyncCycle(env, trigger = "scheduled", force = false) {
         throw new Error(inbound?.error || "SHEET_PULL_FAILED");
       }
       const fixedBefore = await reconcileReportConfigConflicts(env);
-      const outbound = await processOutbox(env, 100, trigger === "manual");
+      // Bound bridge calls (including redirects and readback) to fit free-tier subrequest limits.
+      const outbound = await processOutbox(env, 3, trigger === "manual");
       if (outbound.busy || outbound.leaseLost) throw new Error("OUTBOX_LOCKED");
       // A new CAS conflict may have been discovered during this same click.
       const fixedAfter = await reconcileReportConfigConflicts(env);
       if (fixedAfter.projected) {
-        const retry = await processOutbox(env, 100, trigger === "manual");
+        const retry = await processOutbox(env, 3, trigger === "manual");
         if (retry.busy || retry.leaseLost) throw new Error("OUTBOX_LOCKED");
         outbound.processed = Number(outbound.processed || 0) + Number(retry.processed || 0);
       }
